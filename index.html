@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="theme-color" content="#1a1d24" />
+  <title>画像办公室 · 多 Agent 3D 模拟</title>
+  <link rel="stylesheet" href="css/style.css" />
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <div id="app">
+    <canvas id="scene"></canvas>
+
+    <!-- 顶部状态栏 -->
+    <div id="topbar">
+      <div id="clock">
+        <span id="day-label">第 1 天</span>
+        <span id="time-label">09:00</span>
+        <span id="phase-label">工作时间</span>
+      </div>
+      <div id="speed-controls">
+        <button data-speed="0" title="暂停">⏸</button>
+        <button data-speed="1" class="active">1×</button>
+        <button data-speed="3">3×</button>
+        <button data-speed="8">8×</button>
+      </div>
+    </div>
+
+    <!-- 团队成员栏 -->
+    <div id="roster"></div>
+
+    <!-- 人物详情卡片 -->
+    <div id="profile-card" class="hidden">
+      <button id="profile-close">✕</button>
+      <div id="profile-avatar"></div>
+      <div id="profile-name"></div>
+      <div id="profile-role"></div>
+      <div id="profile-personality"></div>
+      <div id="profile-status"></div>
+    </div>
+
+    <!-- 事件日志 -->
+    <div id="event-log">
+      <div id="event-log-header">
+        <span>办公室动态</span>
+        <button id="log-toggle">－</button>
+      </div>
+      <div id="event-log-body"></div>
+    </div>
+
+    <div id="hint">拖动旋转 · 滚轮/双指缩放 · 点击人物查看画像</div>
+  </div>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
