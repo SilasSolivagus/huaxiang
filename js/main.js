@@ -4,14 +4,17 @@ import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { loadConfig, runtimePersonas } from "./store.js";
 import { LLMClient } from "./llm.js";
+import { World } from "./world.js";
+import { MemoryStream } from "./memory.js";
 import { buildOffice } from "./office.js";
 import { Agent } from "./agent.js";
 import { Director } from "./director.js";
 
-// 从管理后台保存的配置加载人物画像与模型设置
+// 从管理后台保存的配置加载人物画像、模型设置与公司设定
 const config = loadConfig();
 const personas = runtimePersonas(config);
 const llm = new LLMClient(config.model);
+const world = new World(config.company);
 
 // ---------- 渲染器 ----------
 const canvas = document.getElementById("scene");
@@ -56,12 +59,14 @@ scene.add(sun);
 
 // ---------- 场景与人物 ----------
 const office = buildOffice(scene, personas.length);
-const world = { scene, grid: office.grid };
+const sceneWorld = { scene, grid: office.grid };
 
 const agents = personas.map((p, i) => {
-  const a = new Agent(p, world);
+  const a = new Agent(p, sceneWorld);
   // 初始从办公室门口（南侧）走进来
   a.setPosition(-1 + i * 0.8, 6.4);
+  // 每个 Agent 一条独立的记忆流（隔离的核心）
+  a.memory = new MemoryStream(p.id);
   return a;
 });
 
@@ -78,6 +83,7 @@ agents.forEach(a => {
 
 // ---------- 事件日志 ----------
 const logBody = document.getElementById("event-log-body");
+let director = null;   // Director 构造期间就会调用 log，先声明再赋值
 function log(msg, cls = "") {
   const item = document.createElement("div");
   item.className = `log-item ${cls}`;
@@ -90,8 +96,8 @@ function log(msg, cls = "") {
   while (logBody.children.length > 60) logBody.lastChild.remove();
 }
 
-const director = new Director(agents, office, log, llm);
-log("☀️ 第 1 天开始了，团队陆续到岗", "log-meeting");
+log(`☀️ 第 ${world.day} 天开始了，团队陆续到岗`, "log-meeting");
+director = new Director(agents, office, log, llm, world);
 if (llm.enabled) {
   log(`✨ AI 对话已启用（${config.model.model}），会议和协作将实时生成对话`, "log-collab");
 }
@@ -167,6 +173,67 @@ document.getElementById("profile-close").addEventListener("click", () => {
   profileCard.classList.add("hidden");
 });
 
+// 选中人物的记忆流展示（隔离的可视化：每个人记得的事情各不相同）
+function renderMemories(a) {
+  const box = document.getElementById("profile-memories");
+  if (!box || !a.memory) return;
+  const items = a.memory.recent(5);
+  box.innerHTML = items.length === 0
+    ? '<div class="mem-empty">还没有记忆</div>'
+    : items.map(m =>
+        `<div class="mem-item${m.type === "reflect" ? " mem-reflect" : ""}">` +
+        `<span class="mem-time">第${m.day}天 ${m.time}</span>${escapeHtml(m.c)}</div>`
+      ).join("");
+}
+
+function escapeHtml(s) {
+  return s.replace(/[&<>"]/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[ch]));
+}
+
+// ---------- 公司仪表盘 ----------
+const dash = {
+  panel: document.getElementById("dashboard"),
+  name: document.getElementById("dash-company"),
+  product: document.getElementById("dash-product"),
+  metrics: document.getElementById("dash-metrics"),
+  events: document.getElementById("dash-events")
+};
+
+if (dash.panel) {
+  dash.name.textContent = `🏢 ${world.company.name}`;
+  dash.product.textContent = world.company.product;
+  document.getElementById("dash-toggle").addEventListener("click", () => {
+    dash.panel.classList.toggle("collapsed");
+    document.getElementById("dash-toggle").textContent =
+      dash.panel.classList.contains("collapsed") ? "＋" : "－";
+  });
+  // 手机上默认收起
+  if (window.innerWidth < 640) {
+    dash.panel.classList.add("collapsed");
+    document.getElementById("dash-toggle").textContent = "＋";
+  }
+}
+
+function renderDashboard() {
+  if (!dash.panel) return;
+  const m = world.metrics;
+  dash.metrics.innerHTML =
+    metric("日活", m.dau.toLocaleString()) +
+    metric("满意度", `${m.sat} 分`, m.sat < 60 ? "bad" : m.sat > 80 ? "good" : "") +
+    metric("Bug", `${m.bugs} 个`, m.bugs > 22 ? "bad" : m.bugs < 8 ? "good" : "") +
+    metric("服务器", m.serverOk ? "正常" : "故障", m.serverOk ? "good" : "bad") +
+    metric("现金跑道", `${m.runway} 个月`, m.runway < 6 ? "bad" : "");
+  dash.events.innerHTML = world.todayEvents
+    .map(e => `<div class="dash-event">📰 ${escapeHtml(e.text)}</div>`)
+    .join("");
+}
+
+function metric(label, value, cls = "") {
+  return `<div class="dash-metric ${cls}"><span>${label}</span><b>${value}</b></div>`;
+}
+
+renderDashboard();
+
 // ---------- 点击拾取人物 ----------
 const raycaster = new THREE.Raycaster();
 const pointer = new THREE.Vector2();
@@ -232,6 +299,8 @@ function tick() {
     dayLabel.textContent = `第 ${director.day} 天`;
     phaseLabel.textContent = director.phaseLabel;
     for (const a of agents) chipActivity.get(a).textContent = a.activity;
+    renderDashboard();
+    if (selectedAgent) renderMemories(selectedAgent);
   }
 
   controls.update();

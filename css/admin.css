@@ -102,6 +102,21 @@ textarea { resize: vertical; min-height: 64px; line-height: 1.6; }
 
 .switch-label input { width: 18px; height: 18px; accent-color: #4f8cff; }
 
+.radio-row { display: flex; flex-direction: column; gap: 8px; }
+
+.radio-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  cursor: pointer;
+  flex-wrap: wrap;
+}
+
+.radio-item input { accent-color: #4f8cff; }
+
+.radio-item small { color: #6b7686; font-size: 11px; }
+
 /* ---------- 按钮 ---------- */
 button {
   border: none;

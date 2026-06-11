@@ -223,6 +223,105 @@ html, body {
   padding: 6px 8px;
 }
 
+/* ---------- 公司仪表盘 ---------- */
+#dashboard {
+  position: absolute;
+  top: 10px;
+  left: 12px;
+  width: 230px;
+  background: rgba(20, 24, 32, 0.85);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 14px;
+  color: #e8edf4;
+  z-index: 12;
+  overflow: hidden;
+}
+
+#dashboard-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+#dash-toggle {
+  border: none;
+  background: none;
+  color: #9aa4b2;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+#dashboard.collapsed #dashboard-body { display: none; }
+
+#dashboard-body { padding: 0 12px 10px; }
+
+#dash-product { font-size: 11px; color: #9aa4b2; margin-bottom: 8px; }
+
+#dash-metrics {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 5px;
+  margin-bottom: 8px;
+}
+
+.dash-metric {
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 8px;
+  padding: 5px 8px;
+  font-size: 10px;
+  color: #9aa4b2;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.dash-metric b { font-size: 13px; color: #e8edf4; font-variant-numeric: tabular-nums; }
+.dash-metric.good b { color: #6ee7a0; }
+.dash-metric.bad b { color: #ff7b72; }
+
+.dash-event {
+  font-size: 11px;
+  color: #ffd479;
+  line-height: 1.5;
+  margin-top: 4px;
+}
+
+/* ---------- 人物记忆 ---------- */
+#profile-mem-title {
+  margin-top: 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #b7c0cc;
+}
+
+#profile-memories {
+  margin-top: 6px;
+  max-height: 130px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.mem-item {
+  font-size: 11px;
+  color: #9aa4b2;
+  line-height: 1.5;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 8px;
+  padding: 5px 8px;
+}
+
+.mem-item.mem-reflect { color: #ffd479; background: rgba(255, 212, 121, 0.08); }
+
+.mem-time { color: #6b7686; margin-right: 5px; font-size: 10px; }
+
+.mem-empty { font-size: 11px; color: #6b7686; }
+
 /* ---------- 事件日志 ---------- */
 #event-log {
   position: absolute;
@@ -299,5 +398,7 @@ html, body {
   #event-log { width: 180px; right: 8px; bottom: 8px; }
   #event-log-body { max-height: 96px; }
   #profile-card { width: calc(100vw - 200px); max-width: 230px; left: 8px; bottom: 8px; padding: 12px; }
+  #profile-memories { max-height: 90px; }
+  #dashboard { top: 96px; left: 8px; width: 200px; }
   #hint { display: none; }
 }

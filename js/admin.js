@@ -2,10 +2,35 @@
 
 import { loadConfig, saveConfig, resetConfig, defaultConfig, MAX_PERSONAS } from "./store.js";
 import { LLMClient } from "./llm.js";
+import { MemoryStream } from "./memory.js";
+import { World } from "./world.js";
 
 let config = loadConfig();
 
 const $ = id => document.getElementById(id);
+
+// ---------- 公司设定 ----------
+const COMPANY_FIELDS = ["name", "industry", "product", "stage", "goal"];
+
+function renderCompany() {
+  for (const f of COMPANY_FIELDS) $(`c-${f}`).value = config.company?.[f] || "";
+}
+
+function collectCompany() {
+  config.company = config.company || {};
+  for (const f of COMPANY_FIELDS) {
+    const v = $(`c-${f}`).value.trim();
+    if (v) config.company[f] = v;
+  }
+}
+
+$("btn-clear-memory").addEventListener("click", () => {
+  if (confirm("确定清空所有人物的记忆流，并把产品指标重置回第 1 天吗？\n（人物画像和模型配置不受影响）")) {
+    MemoryStream.clearAll();
+    World.reset();
+    alert("已清空。返回办公室后将从第 1 天重新开始。");
+  }
+});
 
 // ---------- 模型设置 ----------
 const MODEL_HINTS = {
@@ -20,6 +45,8 @@ function renderModel() {
   $("m-key").value = m.apiKey || "";
   $("m-model").value = m.model || "";
   $("m-baseurl").value = m.baseUrl || "";
+  const usage = document.querySelector(`input[name="usage"][value="${m.usage || "standard"}"]`);
+  if (usage) usage.checked = true;
   updateProviderUI();
 }
 
@@ -36,7 +63,8 @@ function collectModel() {
     provider: $("m-provider").value,
     apiKey: $("m-key").value.trim(),
     model: $("m-model").value.trim(),
-    baseUrl: $("m-baseurl").value.trim()
+    baseUrl: $("m-baseurl").value.trim(),
+    usage: document.querySelector('input[name="usage"]:checked')?.value || "standard"
   };
 }
 
@@ -152,6 +180,7 @@ $("btn-add").addEventListener("click", () => {
 // ---------- 保存 / 重置 / 导入导出 ----------
 $("btn-save").addEventListener("click", () => {
   collectModel();
+  collectCompany();
   // 校验
   for (const p of config.personas) {
     if (!p.name?.trim()) {
@@ -173,12 +202,14 @@ $("btn-reset").addEventListener("click", () => {
     resetConfig();
     config = defaultConfig();
     renderModel();
+    renderCompany();
     renderPersonas();
   }
 });
 
 $("btn-export").addEventListener("click", () => {
   collectModel();
+  collectCompany();
   // 导出时不带 API Key，避免误分享泄露
   const out = JSON.parse(JSON.stringify(config));
   out.model.apiKey = "";
@@ -205,6 +236,7 @@ $("import-file").addEventListener("change", async e => {
     config.personas = imported.personas.slice(0, MAX_PERSONAS);
     if (!config.model.apiKey) config.model.apiKey = keepKey;
     renderModel();
+    renderCompany();
     renderPersonas();
     alert(`导入成功：${config.personas.length} 个人物。记得点「保存」生效。`);
   } catch (err) {
@@ -216,4 +248,5 @@ $("import-file").addEventListener("change", async e => {
 
 // ---------- 初始化 ----------
 renderModel();
+renderCompany();
 renderPersonas();

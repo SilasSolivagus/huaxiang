@@ -2,6 +2,7 @@
 // 管理后台（admin.html）写入，办公室页面（index.html）读取。
 
 import { PERSONAS } from "./personas.js";
+import { DEFAULT_COMPANY } from "./world.js";
 
 const STORAGE_KEY = "huaxiang.config.v1";
 
@@ -28,8 +29,10 @@ export function defaultConfig() {
       provider: "anthropic",          // anthropic | openai（OpenAI 兼容接口）
       apiKey: "",
       model: "claude-opus-4-8",
-      baseUrl: ""                      // 仅 OpenAI 兼容接口需要，如 https://api.deepseek.com/v1
-    }
+      baseUrl: "",                     // 仅 OpenAI 兼容接口需要，如 https://api.deepseek.com/v1
+      usage: "standard"                // economy | standard | immersive：AI 用量档位
+    },
+    company: { ...DEFAULT_COMPANY }    // 公司设定（世界模型用）
   };
 }
 
@@ -39,6 +42,10 @@ export function loadConfig() {
     if (raw) {
       const cfg = JSON.parse(raw);
       if (cfg && Array.isArray(cfg.personas) && cfg.personas.length > 0 && cfg.model) {
+        // 旧版本配置补全新增字段
+        const def = defaultConfig();
+        cfg.model = { ...def.model, ...cfg.model };
+        cfg.company = { ...def.company, ...(cfg.company || {}) };
         return cfg;
       }
     }

@@ -1,33 +1,50 @@
-// LLM 客户端：为模拟中的会议、协作生成实时对话。
-// 支持两种提供商：
+// LLM 客户端：为每个 Agent 独立生成第一人称发言与每日反思。
+// 隔离原则：每次调用只携带"这个人自己的画像 + 他自己检索出的记忆 + 他听到的对话"，
+// 模型扮演单个角色，而不是上帝视角写整场剧本。
+//
+// 提供商：
 //   anthropic — Claude API（浏览器直连，需 anthropic-dangerous-direct-browser-access 头）
-//   openai    — OpenAI 兼容接口（DeepSeek、Kimi、通义、智谱等均可，填对应 baseUrl）
-// 内置限流与冷却：调用失败或过于频繁时返回 null，调用方自动退回内置台词。
+//   openai    — OpenAI 兼容接口（DeepSeek、Kimi、通义、智谱等，填对应 baseUrl）
+// 内置串行队列 + 限流 + 出错冷却：不可用时返回 null，调用方回退内置台词。
 
-const MIN_INTERVAL_MS = 6000;     // 两次请求之间的最小间隔
-const ERROR_COOLDOWN_MS = 60000;  // 出错后的冷却时间
+const ERROR_COOLDOWN_MS = 60000;
+const USAGE_INTERVALS = { economy: 999999999, standard: 4500, immersive: 2200 };
 
 export class LLMClient {
   constructor(modelCfg) {
     this.cfg = modelCfg || {};
-    this.busy = false;
+    this.usage = this.cfg.usage || "standard";
+    this.minInterval = USAGE_INTERVALS[this.usage] ?? 4500;
+    this.queue = Promise.resolve();
+    this.queueLen = 0;
     this.lastCallAt = 0;
     this.cooldownUntil = 0;
     this.lastError = null;
   }
 
   get enabled() {
-    return !!(this.cfg.enabled && this.cfg.apiKey && this.cfg.model);
+    return !!(this.cfg.enabled && this.cfg.apiKey && this.cfg.model && this.usage !== "economy");
   }
 
-  /** 是否当前可以发起请求（供调用方决定走 AI 还是台词池） */
+  /** 当前是否值得发起新请求（队列不深、不在冷却中） */
   get available() {
-    const now = Date.now();
-    return this.enabled && !this.busy && now >= this.cooldownUntil &&
-      now - this.lastCallAt >= MIN_INTERVAL_MS;
+    return this.enabled && this.queueLen < 3 && Date.now() >= this.cooldownUntil;
   }
 
-  async chatRaw(system, user, maxTokens = 1024) {
+  /** 串行执行 + 节流：保证请求之间至少间隔 minInterval */
+  enqueue(fn) {
+    this.queueLen++;
+    const run = this.queue.then(async () => {
+      const wait = this.lastCallAt + this.minInterval - Date.now();
+      if (wait > 0) await new Promise(r => setTimeout(r, wait));
+      this.lastCallAt = Date.now();
+      return fn();
+    });
+    this.queue = run.catch(() => {}).then(() => { this.queueLen--; });
+    return run;
+  }
+
+  async chatRaw(system, user, maxTokens = 512) {
     if (this.cfg.provider === "openai") {
       const base = (this.cfg.baseUrl || "https://api.openai.com/v1").replace(/\/+$/, "");
       const res = await fetch(`${base}/chat/completions`, {
@@ -74,41 +91,65 @@ export class LLMClient {
   }
 
   /**
-   * 生成一段多人对话。
-   * @param {object} opts { scene, participants: [{name, role, personality}], turns, order? }
-   * @returns {Promise<Array<{name, text}>|null>} 失败/限流时返回 null
+   * 以某个角色的身份生成一句发言（第一人称、信息隔离）。
+   * @param {object} opts {
+   *   persona: {name, role, personality},
+   *   company: string,        公司背景简介
+   *   memories: string[],     这个人自己检索出的相关记忆
+   *   scene: string,          当前场景描述
+   *   transcript: string[],   他刚刚听到的对话（最近几句）
+   * }
+   * @returns {Promise<string|null>}
    */
-  async dialogue({ scene, participants, turns = 6, order = null }) {
+  async speak({ persona, company, memories = [], scene, transcript = [] }) {
     if (!this.available) return null;
-    this.busy = true;
-    this.lastCallAt = Date.now();
-    try {
-      const system =
-        "你是一个 3D 办公室模拟游戏的对话编剧。根据人物画像生成简短、自然、口语化的中文办公室对话，" +
-        "要符合每个人的性格和职位，可以互相回应、偶尔幽默。只输出 JSON 数组，不要任何其他文字。";
-      const roster = participants
-        .map(p => `- ${p.name}（${p.role}）：${p.personality || "暂无描述"}`)
-        .join("\n");
-      const orderHint = order
-        ? `发言顺序必须严格为：${order.join(" → ")}。`
-        : "发言人可以自由穿插，但每人至少说一句。";
-      const user =
-        `场景：${scene}\n\n人物画像：\n${roster}\n\n` +
-        `请生成 ${turns} 句按顺序的发言。${orderHint}每句不超过 40 个字。\n` +
-        `输出格式：[{"name":"姓名","text":"发言内容"}]`;
+    return this.enqueue(async () => {
+      try {
+        const system =
+          `你在一个办公室模拟中扮演「${persona.name}」（${persona.role}）。` +
+          `你的性格画像：${persona.personality || "暂无"}。\n` +
+          (company ? `你所在的公司：${company}\n` : "") +
+          `规则：你只知道下面提供的你自己的记忆和你刚听到的话，不要编造你不可能知道的信息。` +
+          `用第一人称说一句话，口语化、符合你的性格，不超过 40 个字。只输出这句话本身，不要引号、不要名字前缀。`;
+        const user =
+          (memories.length ? `你记得的相关事情：\n${memories.map(m => "- " + m).join("\n")}\n\n` : "") +
+          `当前场景：${scene}\n` +
+          (transcript.length ? `你刚听到的对话：\n${transcript.join("\n")}\n` : "") +
+          `\n现在轮到你开口。`;
+        const text = (await this.chatRaw(system, user, 256)).trim()
+          .replace(/^["「『]|["」』]$/g, "")
+          .replace(new RegExp(`^${persona.name}[:：]\\s*`), "");
+        this.lastError = null;
+        return text ? text.slice(0, 60) : null;
+      } catch (e) {
+        console.warn("发言生成失败，回退台词池：", e);
+        this.lastError = String(e.message || e);
+        this.cooldownUntil = Date.now() + ERROR_COOLDOWN_MS;
+        return null;
+      }
+    });
+  }
 
-      const raw = await this.chatRaw(system, user, 1500);
-      const parsed = parseDialogue(raw, participants.map(p => p.name));
-      this.lastError = null;
-      return parsed;
-    } catch (e) {
-      console.warn("LLM 对话生成失败，回退到内置台词：", e);
-      this.lastError = String(e.message || e);
-      this.cooldownUntil = Date.now() + ERROR_COOLDOWN_MS;
-      return null;
-    } finally {
-      this.busy = false;
-    }
+  /** 每日反思：把当天经历提炼成 1~2 条感悟（高权重记忆） */
+  async reflect({ persona, company, digest, day }) {
+    if (!this.available || !digest) return null;
+    return this.enqueue(async () => {
+      try {
+        const system =
+          `你在扮演「${persona.name}」（${persona.role}），性格画像：${persona.personality || "暂无"}。` +
+          (company ? `公司背景：${company}\n` : "") +
+          `下面是你今天（第 ${day} 天）经历的事情。请以第一人称写下 1 条你今天最重要的感悟或决定，` +
+          `不超过 50 个字，要具体、能指导你明天的行动。只输出这条感悟本身。`;
+        const text = (await this.chatRaw(system, `今天的经历：\n${digest}`, 256)).trim();
+        this.lastError = null;
+        return text ? text.slice(0, 70) : null;
+      } catch (e) {
+        console.warn("反思生成失败：", e);
+        this.lastError = String(e.message || e);
+        this.cooldownUntil = Date.now() + ERROR_COOLDOWN_MS;
+        return null;
+      }
+    });
   }
 
   /** 测试连接（管理后台用），返回 { ok, message } */
@@ -127,28 +168,4 @@ export class LLMClient {
       return { ok: false, message: `连接失败：${String(e.message || e).slice(0, 160)}` };
     }
   }
-}
-
-/** 解析模型输出为 [{name,text}]，容忍代码块围栏和多余文字 */
-function parseDialogue(raw, validNames) {
-  if (!raw) return null;
-  let s = raw.replace(/```(json)?/g, "").trim();
-  const start = s.indexOf("[");
-  const end = s.lastIndexOf("]");
-  if (start === -1 || end === -1 || end <= start) return null;
-  s = s.slice(start, end + 1);
-  let arr;
-  try {
-    arr = JSON.parse(s);
-  } catch {
-    return null;
-  }
-  if (!Array.isArray(arr)) return null;
-  const out = arr
-    .filter(t => t && typeof t.text === "string" && t.text.trim())
-    .map(t => ({
-      name: validNames.includes(t.name) ? t.name : validNames[0],
-      text: t.text.trim().slice(0, 60)
-    }));
-  return out.length > 0 ? out : null;
 }

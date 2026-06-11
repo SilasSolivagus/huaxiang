@@ -35,6 +35,15 @@
         </label>
       </div>
 
+      <div class="form-row">
+        <label>AI 用量档位（控制调用频率和成本）</label>
+        <div class="radio-row">
+          <label class="radio-item"><input type="radio" name="usage" value="economy" /> 经济<small>不调模型，只跑世界模拟和台词池</small></label>
+          <label class="radio-item"><input type="radio" name="usage" value="standard" checked /> 标准<small>发言间隔 ≥4.5 秒，含每日反思</small></label>
+          <label class="radio-item"><input type="radio" name="usage" value="immersive" /> 沉浸<small>发言间隔 ≥2.2 秒，对话最密集</small></label>
+        </div>
+      </div>
+
       <div class="form-grid">
         <div class="form-row">
           <label>提供商</label>
@@ -62,6 +71,43 @@
       <div class="form-actions">
         <button id="btn-test">测试连接</button>
         <span id="test-result"></span>
+      </div>
+    </section>
+
+    <!-- 公司设定（世界模型） -->
+    <section class="card">
+      <h2>🏢 公司设定</h2>
+      <p class="hint">
+        这里定义「这是个什么公司」。产品有真实运行状态（日活、满意度、Bug、现金跑道），每天演化并被市场事件冲击；
+        员工知道这些数据和事件，开会时会真的讨论它们。这些设定会进入每个人物的世界认知。
+      </p>
+      <div class="form-grid">
+        <div class="field-pair">
+          <div class="form-row">
+            <label>公司名</label>
+            <input type="text" id="c-name" placeholder="星图科技" />
+          </div>
+          <div class="form-row">
+            <label>行业 / 赛道</label>
+            <input type="text" id="c-industry" placeholder="企业协作软件" />
+          </div>
+        </div>
+        <div class="form-row">
+          <label>产品描述</label>
+          <input type="text" id="c-product" placeholder="团队协作 SaaS「星图」" />
+        </div>
+        <div class="form-row">
+          <label>公司阶段</label>
+          <input type="text" id="c-stage" placeholder="A 轮创业公司，团队规模 20 人左右" />
+        </div>
+        <div class="form-row">
+          <label>当前经营目标</label>
+          <input type="text" id="c-goal" placeholder="三个月内把日活翻倍，并签下第一批付费大客户" />
+        </div>
+      </div>
+      <div class="form-actions">
+        <button id="btn-clear-memory" class="ghost danger">清空所有人的记忆和世界进度</button>
+        <span class="field-hint">人物的记忆流和产品指标会重置回第 1 天（人物画像和模型配置保留）</span>
       </div>
     </section>
 
