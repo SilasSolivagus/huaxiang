@@ -198,14 +198,28 @@ $("btn-save").addEventListener("click", () => {
 });
 
 $("btn-reset").addEventListener("click", () => {
-  if (confirm("确定恢复默认的 6 个示例人物吗？你的修改和模型配置都会被清除。")) {
+  if (confirm("确定恢复默认的人物阵容和公司设定吗？\n（你填的 API Key 和模型配置会保留）")) {
+    const keepModel = { ...config.model, ...collectModelValues() };
     resetConfig();
     config = defaultConfig();
+    config.model = { ...config.model, ...keepModel };
     renderModel();
     renderCompany();
     renderPersonas();
   }
 });
+
+/** 不写回 config，仅收集当前表单里的模型配置 */
+function collectModelValues() {
+  return {
+    enabled: $("m-enabled").checked,
+    provider: $("m-provider").value,
+    apiKey: $("m-key").value.trim(),
+    model: $("m-model").value.trim(),
+    baseUrl: $("m-baseurl").value.trim(),
+    usage: document.querySelector('input[name="usage"]:checked')?.value || "standard"
+  };
+}
 
 $("btn-export").addEventListener("click", () => {
   collectModel();
