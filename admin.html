@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#1a1d24" />
+  <title>管理后台 · 画像办公室</title>
+  <link rel="stylesheet" href="css/admin.css" />
+</head>
+<body>
+  <div id="admin">
+    <header>
+      <a href="index.html" class="back-link">← 返回办公室</a>
+      <h1>管理后台</h1>
+      <div class="header-actions">
+        <button id="btn-export" class="ghost">导出配置</button>
+        <button id="btn-import" class="ghost">导入配置</button>
+        <input type="file" id="import-file" accept=".json" hidden />
+      </div>
+    </header>
+
+    <!-- 模型设置 -->
+    <section class="card">
+      <h2>🤖 AI 模型设置</h2>
+      <p class="hint">
+        启用后，人物开会发言和协作讨论将由模型根据画像<strong>实时生成</strong>（日志中带 ✨ 标记）；
+        未启用或调用失败时自动使用内置台词。<br />
+        🔒 API Key 只保存在<strong>你这台设备的浏览器</strong>里（localStorage），不会上传到任何服务器，调用时由你的浏览器直接请求模型官方接口。
+      </p>
+
+      <div class="form-row">
+        <label class="switch-label">
+          <input type="checkbox" id="m-enabled" />
+          <span>启用 AI 对话生成</span>
+        </label>
+      </div>
+
+      <div class="form-grid">
+        <div class="form-row">
+          <label>提供商</label>
+          <select id="m-provider">
+            <option value="anthropic">Claude（Anthropic 官方）</option>
+            <option value="openai">OpenAI 兼容接口（DeepSeek / Kimi / 通义 / 智谱…）</option>
+          </select>
+        </div>
+        <div class="form-row">
+          <label>API Key</label>
+          <input type="password" id="m-key" placeholder="sk-..." autocomplete="off" />
+        </div>
+        <div class="form-row">
+          <label>模型名</label>
+          <input type="text" id="m-model" placeholder="claude-opus-4-8" />
+          <span class="field-hint" id="m-model-hint"></span>
+        </div>
+        <div class="form-row" id="row-baseurl" hidden>
+          <label>接口地址 Base URL</label>
+          <input type="text" id="m-baseurl" placeholder="https://api.deepseek.com/v1" />
+          <span class="field-hint">OpenAI 兼容服务的 API 地址，以 /v1 结尾</span>
+        </div>
+      </div>
+
+      <div class="form-actions">
+        <button id="btn-test">测试连接</button>
+        <span id="test-result"></span>
+      </div>
+    </section>
+
+    <!-- 人物管理 -->
+    <section class="card">
+      <h2>🧑‍💼 人物管理 <span id="persona-count" class="count"></span></h2>
+      <p class="hint">每个人物的画像描述会直接交给模型，写得越具体，人物的发言越有个性。最多 8 人。</p>
+      <div id="persona-list"></div>
+      <button id="btn-add" class="ghost add-btn">＋ 添加人物</button>
+    </section>
+
+    <!-- 底部操作 -->
+    <div class="footer-bar">
+      <button id="btn-reset" class="danger ghost">恢复默认</button>
+      <span id="save-status"></span>
+      <button id="btn-save" class="primary">保存并返回办公室</button>
+    </div>
+  </div>
+
+  <script type="module" src="js/admin.js"></script>
+</body>
+</html>

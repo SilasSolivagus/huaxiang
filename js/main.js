@@ -2,10 +2,16 @@
 
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
-import { PERSONAS } from "./personas.js";
+import { loadConfig, runtimePersonas } from "./store.js";
+import { LLMClient } from "./llm.js";
 import { buildOffice } from "./office.js";
 import { Agent } from "./agent.js";
 import { Director } from "./director.js";
+
+// 从管理后台保存的配置加载人物画像与模型设置
+const config = loadConfig();
+const personas = runtimePersonas(config);
+const llm = new LLMClient(config.model);
 
 // ---------- 渲染器 ----------
 const canvas = document.getElementById("scene");
@@ -49,10 +55,10 @@ sun.shadow.bias = -0.0005;
 scene.add(sun);
 
 // ---------- 场景与人物 ----------
-const office = buildOffice(scene);
+const office = buildOffice(scene, personas.length);
 const world = { scene, grid: office.grid };
 
-const agents = PERSONAS.map((p, i) => {
+const agents = personas.map((p, i) => {
   const a = new Agent(p, world);
   // 初始从办公室门口（南侧）走进来
   a.setPosition(-1 + i * 0.8, 6.4);
@@ -84,8 +90,21 @@ function log(msg, cls = "") {
   while (logBody.children.length > 60) logBody.lastChild.remove();
 }
 
-const director = new Director(agents, office, log);
+const director = new Director(agents, office, log, llm);
 log("☀️ 第 1 天开始了，团队陆续到岗", "log-meeting");
+if (llm.enabled) {
+  log(`✨ AI 对话已启用（${config.model.model}），会议和协作将实时生成对话`, "log-collab");
+}
+
+// AI 状态指示
+const aiChip = document.getElementById("ai-chip");
+if (aiChip) {
+  aiChip.textContent = llm.enabled ? "✨AI" : "AI关";
+  aiChip.classList.toggle("on", llm.enabled);
+  aiChip.title = llm.enabled
+    ? `AI 对话已启用：${config.model.model}`
+    : "AI 对话未启用，点击右侧 ⚙ 进入管理后台配置模型";
+}
 
 // ---------- 顶部 UI ----------
 const timeLabel = document.getElementById("time-label");

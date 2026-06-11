@@ -1,0 +1,219 @@
+// 管理后台逻辑：人物画像增删改 + 模型配置 + 导入导出，全部读写 localStorage。
+
+import { loadConfig, saveConfig, resetConfig, defaultConfig, MAX_PERSONAS } from "./store.js";
+import { LLMClient } from "./llm.js";
+
+let config = loadConfig();
+
+const $ = id => document.getElementById(id);
+
+// ---------- 模型设置 ----------
+const MODEL_HINTS = {
+  anthropic: "推荐 claude-opus-4-8；想省钱可用 claude-haiku-4-5",
+  openai: "按服务商文档填写，如 deepseek-chat、moonshot-v1-8k、qwen-plus"
+};
+
+function renderModel() {
+  const m = config.model;
+  $("m-enabled").checked = !!m.enabled;
+  $("m-provider").value = m.provider || "anthropic";
+  $("m-key").value = m.apiKey || "";
+  $("m-model").value = m.model || "";
+  $("m-baseurl").value = m.baseUrl || "";
+  updateProviderUI();
+}
+
+function updateProviderUI() {
+  const p = $("m-provider").value;
+  $("row-baseurl").hidden = p !== "openai";
+  $("m-model-hint").textContent = MODEL_HINTS[p];
+  $("m-model").placeholder = p === "anthropic" ? "claude-opus-4-8" : "deepseek-chat";
+}
+
+function collectModel() {
+  config.model = {
+    enabled: $("m-enabled").checked,
+    provider: $("m-provider").value,
+    apiKey: $("m-key").value.trim(),
+    model: $("m-model").value.trim(),
+    baseUrl: $("m-baseurl").value.trim()
+  };
+}
+
+$("m-provider").addEventListener("change", updateProviderUI);
+
+$("btn-test").addEventListener("click", async () => {
+  collectModel();
+  const result = $("test-result");
+  result.className = "";
+  result.textContent = "测试中…";
+  const client = new LLMClient(config.model);
+  const { ok, message } = await client.test();
+  result.className = ok ? "ok" : "err";
+  result.textContent = message;
+});
+
+// ---------- 人物管理 ----------
+const PALETTE = ["#e05a4e", "#4f8cff", "#3dbf7a", "#b86fd9", "#f0a93c", "#5a6b7f", "#e26fa0", "#41b8c4"];
+
+function renderPersonas() {
+  const list = $("persona-list");
+  list.innerHTML = "";
+  config.personas.forEach((p, i) => list.appendChild(personaCard(p, i)));
+  $("persona-count").textContent = `（${config.personas.length}/${MAX_PERSONAS} 人）`;
+  $("btn-add").style.display = config.personas.length >= MAX_PERSONAS ? "none" : "";
+}
+
+function personaCard(p, i) {
+  const card = document.createElement("div");
+  card.className = "persona-card";
+  card.innerHTML = `
+    <div class="persona-head">
+      <span class="persona-dot" style="background:${p.color}">${(p.name || "？")[0]}</span>
+      <span class="persona-title">${p.name || "新成员"} · ${p.role || "未设置职位"}</span>
+      <button class="persona-remove">删除</button>
+    </div>
+    <div class="persona-fields">
+      <div class="field-pair">
+        <div class="form-row">
+          <label>姓名</label>
+          <input type="text" data-field="name" value="" placeholder="例如：林晓" />
+        </div>
+        <div class="form-row">
+          <label>职位</label>
+          <input type="text" data-field="role" value="" placeholder="例如：产品经理" />
+        </div>
+      </div>
+      <div class="form-row">
+        <label>画像描述（性格、习惯、口头禅…会交给 AI 用来生成对话）</label>
+        <textarea data-field="personality" placeholder="例如：雷厉风行，永远在推进度，口头禅是「这个需求很简单」…"></textarea>
+      </div>
+      <div class="color-row">
+        <span class="color-item">衣服 <input type="color" data-field="color" /></span>
+        <span class="color-item">头发 <input type="color" data-field="hair" /></span>
+        <span class="color-item">肤色 <input type="color" data-field="skin" /></span>
+      </div>
+    </div>`;
+
+  // 填值（用 value 属性赋值避免 HTML 转义问题）
+  card.querySelector('[data-field="name"]').value = p.name || "";
+  card.querySelector('[data-field="role"]').value = p.role || "";
+  card.querySelector('[data-field="personality"]').value = p.personality || "";
+  card.querySelector('[data-field="color"]').value = p.color || "#4f8cff";
+  card.querySelector('[data-field="hair"]').value = p.hair || "#2b2b2b";
+  card.querySelector('[data-field="skin"]').value = p.skin || "#f2c9a4";
+
+  // 字段变更直接写回内存中的 config
+  card.querySelectorAll("[data-field]").forEach(el => {
+    el.addEventListener("input", () => {
+      config.personas[i][el.dataset.field] = el.value;
+      if (el.dataset.field === "name" || el.dataset.field === "role") {
+        card.querySelector(".persona-title").textContent =
+          `${config.personas[i].name || "新成员"} · ${config.personas[i].role || "未设置职位"}`;
+        card.querySelector(".persona-dot").textContent = (config.personas[i].name || "？")[0];
+      }
+      if (el.dataset.field === "color") {
+        card.querySelector(".persona-dot").style.background = el.value;
+      }
+    });
+  });
+
+  card.querySelector(".persona-remove").addEventListener("click", () => {
+    if (config.personas.length <= 1) {
+      alert("至少保留 1 个人物");
+      return;
+    }
+    if (confirm(`确定删除「${p.name || "该成员"}」吗？`)) {
+      config.personas.splice(i, 1);
+      renderPersonas();
+    }
+  });
+
+  return card;
+}
+
+$("btn-add").addEventListener("click", () => {
+  if (config.personas.length >= MAX_PERSONAS) return;
+  const i = config.personas.length;
+  config.personas.push({
+    id: `custom-${Date.now()}`,
+    name: "",
+    role: "",
+    personality: "",
+    color: PALETTE[i % PALETTE.length],
+    hair: "#2b2b2b",
+    skin: "#f2c9a4"
+  });
+  renderPersonas();
+  const cards = document.querySelectorAll(".persona-card");
+  cards[cards.length - 1].scrollIntoView({ behavior: "smooth", block: "center" });
+});
+
+// ---------- 保存 / 重置 / 导入导出 ----------
+$("btn-save").addEventListener("click", () => {
+  collectModel();
+  // 校验
+  for (const p of config.personas) {
+    if (!p.name?.trim()) {
+      alert("有人物还没填姓名，请补全后再保存");
+      return;
+    }
+  }
+  if (config.model.enabled && (!config.model.apiKey || !config.model.model)) {
+    alert("已勾选启用 AI，但 API Key 或模型名为空。请补全，或先取消勾选。");
+    return;
+  }
+  saveConfig(config);
+  $("save-status").textContent = "已保存 ✓";
+  setTimeout(() => { location.href = "index.html"; }, 400);
+});
+
+$("btn-reset").addEventListener("click", () => {
+  if (confirm("确定恢复默认的 6 个示例人物吗？你的修改和模型配置都会被清除。")) {
+    resetConfig();
+    config = defaultConfig();
+    renderModel();
+    renderPersonas();
+  }
+});
+
+$("btn-export").addEventListener("click", () => {
+  collectModel();
+  // 导出时不带 API Key，避免误分享泄露
+  const out = JSON.parse(JSON.stringify(config));
+  out.model.apiKey = "";
+  const blob = new Blob([JSON.stringify(out, null, 2)], { type: "application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "huaxiang-config.json";
+  a.click();
+  URL.revokeObjectURL(a.href);
+});
+
+$("btn-import").addEventListener("click", () => $("import-file").click());
+
+$("import-file").addEventListener("change", async e => {
+  const file = e.target.files[0];
+  if (!file) return;
+  try {
+    const imported = JSON.parse(await file.text());
+    if (!Array.isArray(imported.personas) || imported.personas.length === 0) {
+      throw new Error("文件里没有人物数据");
+    }
+    const keepKey = config.model.apiKey;          // 保留本机已填的 Key
+    config = { ...defaultConfig(), ...imported };
+    config.personas = imported.personas.slice(0, MAX_PERSONAS);
+    if (!config.model.apiKey) config.model.apiKey = keepKey;
+    renderModel();
+    renderPersonas();
+    alert(`导入成功：${config.personas.length} 个人物。记得点「保存」生效。`);
+  } catch (err) {
+    alert(`导入失败：${err.message}`);
+  } finally {
+    e.target.value = "";
+  }
+});
+
+// ---------- 初始化 ----------
+renderModel();
+renderPersonas();

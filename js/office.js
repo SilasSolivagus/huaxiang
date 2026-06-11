@@ -100,7 +100,8 @@ function makePlant(scene, x, z, scale = 1) {
   return g;
 }
 
-export function buildOffice(scene) {
+export function buildOffice(scene, personaCount = 6) {
+  const count = Math.max(1, Math.min(9, personaCount));
   // ---------- 地板 ----------
   const floor = new THREE.Mesh(
     new THREE.BoxGeometry(W, 0.2, D),
@@ -159,12 +160,15 @@ export function buildOffice(scene) {
   // 南侧玻璃墙：z=-1，x 从 5.2 到 11.5（留出门洞 3.5~5.2）
   mkGlass(6.3, 0.12, 8.35, -1);
 
-  // ---------- 工位（2 排 × 3）----------
+  // ---------- 工位（按人数生成，每排 3 个，最多 3 排）----------
   // 每个工位：desk 在前，椅子在 +z 侧，人坐下后面向 -z（朝向显示器）
-  const deskDefs = [
-    { x: -9,   z: -3.5 }, { x: -5.5, z: -3.5 }, { x: -2, z: -3.5 },
-    { x: -9,   z: 1.5  }, { x: -5.5, z: 1.5  }, { x: -2, z: 1.5 }
-  ];
+  const deskXs = [-9, -5.5, -2];
+  const deskZs = [-3.5, 1.5, 5];
+  const deskCount = Math.max(6, count);   // 少于 6 人也摆满两排，办公室不显得空
+  const deskDefs = [];
+  for (let i = 0; i < deskCount; i++) {
+    deskDefs.push({ x: deskXs[i % 3], z: deskZs[Math.floor(i / 3)] });
+  }
   const desks = [];
   for (const d of deskDefs) {
     makeDesk(scene, d.x, d.z);
@@ -186,7 +190,8 @@ export function buildOffice(scene) {
     scene.add(leg);
   }
   const meetingSeats = [];
-  const seatXs = [6.05, 7.25, 8.45];
+  // 6 人以内每侧 3 把椅子，更多人时每侧 4 把
+  const seatXs = count <= 6 ? [6.05, 7.25, 8.45] : [5.65, 6.7, 7.8, 8.85];
   for (const sx of seatXs) {
     makeChair(scene, sx, -5.4, 0, 0x806044);
     meetingSeats.push({ x: sx, z: -5.4, lookAt: { x: sx, z: -4.2 } });
@@ -246,9 +251,11 @@ export function buildOffice(scene) {
     scene.add(stool);
     coffeeSpots.push({ x: sx, z: sz, lookAt: { x: 7.6, z: 5.1 } });
   }
-  // 咖啡机旁站位
+  // 咖啡机旁与沙发边的站位
   coffeeSpots.push({ x: 9.9, z: 4.1, lookAt: { x: 10.7, z: 4.0 } });
   coffeeSpots.push({ x: 9.9, z: 5.2, lookAt: { x: 10.7, z: 4.6 } });
+  coffeeSpots.push({ x: 5.0, z: 5.4, lookAt: { x: 7.6, z: 5.1 } });
+  coffeeSpots.push({ x: 6.3, z: 3.6, lookAt: { x: 7.6, z: 5.1 } });
 
   // ---------- 绿植与装饰 ----------
   makePlant(scene, -10.8, -6.8, 1.2);
