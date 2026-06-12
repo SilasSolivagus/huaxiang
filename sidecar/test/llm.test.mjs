@@ -53,3 +53,16 @@ test("openai 兼容模式走 chat/completions 接口", async () => {
   assert.equal(calledUrl, "https://api.deepseek.com/v1/chat/completions");
   assert.equal(out[0].relevance, 7);
 });
+
+test("chatRaw 给 fetch 传超时 signal", async () => {
+  let gotSignal = null;
+  const llm = new SidecarLLM(
+    { SIDECAR_API_KEY: "k", SIDECAR_MODEL: "m" },
+    async (url, opts) => {
+      gotSignal = opts.signal;
+      return anthropicResponse('[{"i":0,"relevance":5,"summary":"s"}]');
+    }
+  );
+  await llm.scoreBatch([{ title: "x" }], "公司");
+  assert.ok(gotSignal instanceof AbortSignal);
+});

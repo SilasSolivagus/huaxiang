@@ -24,7 +24,8 @@ export class SidecarLLM {
           model: this.model,
           max_tokens: maxTokens,
           messages: [{ role: "system", content: system }, { role: "user", content: user }]
-        })
+        }),
+        signal: AbortSignal.timeout(60000)
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
@@ -42,7 +43,8 @@ export class SidecarLLM {
         max_tokens: maxTokens,
         system,
         messages: [{ role: "user", content: user }]
-      })
+      }),
+      signal: AbortSignal.timeout(60000)
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
