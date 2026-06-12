@@ -45,6 +45,18 @@ npx http-server -p 8080
 
 > 注意：直接双击 index.html（file:// 协议）无法加载 ES 模块，需要用本地服务器。
 
+**方式三：本地 sidecar（解锁真实市场监控与上层决策）**
+
+```bash
+cd sidecar
+cp config.example.json config.json   # 改公司简介和 RSS 源
+cp .env.example .env                 # 填一个便宜模型的 API Key（筛选新闻用）
+npm install && npm start
+# 浏览器打开 http://127.0.0.1:7878
+```
+
+sidecar 在线时：RSS 新闻经 AI 筛选后实时进入办公室（📡 标记），管理后台可发布「上层决策」长期约束所有人的言行。sidecar 不在线时一切回退纯虚构模式，GitHub Pages 部署不受影响。
+
 ## 替换成你自己的人物画像
 
 **推荐方式：管理后台。** 打开网页右上角的 ⚙ 进入管理后台，直接添加人物、写画像、选颜色，保存即生效（存在浏览器本地）。同一设备下次打开自动加载；换设备可用「导出/导入配置」迁移。
