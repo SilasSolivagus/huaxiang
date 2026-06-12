@@ -272,26 +272,36 @@ async function initPolicies() {
   const statusEl = $("policy-status");
 
   async function refresh() {
-    const policies = await (await fetch("/api/policies")).json();
-    $("policy-count").textContent = `（现行 ${policies.length} 条）`;
-    list.innerHTML = policies.length === 0
-      ? '<p class="hint">还没有现行决策。</p>'
-      : "";
-    for (const p of policies) {
-      const row = document.createElement("div");
-      row.className = "form-row policy-row";
-      const span = document.createElement("span");
-      span.textContent = `📣 ${p.text}`;
-      const btn = document.createElement("button");
-      btn.className = "ghost danger";
-      btn.textContent = "撤销";
-      btn.addEventListener("click", async () => {
-        if (!confirm(`确定撤销这条决策吗？\n「${p.text}」`)) return;
-        await fetch(`/api/policies/${p.id}`, { method: "DELETE" });
-        refresh();
-      });
-      row.append(span, btn);
-      list.appendChild(row);
+    try {
+      const policies = await (await fetch("/api/policies")).json();
+      $("policy-count").textContent = `（现行 ${policies.length} 条）`;
+      list.innerHTML = policies.length === 0
+        ? '<p class="hint">还没有现行决策。</p>'
+        : "";
+      for (const p of policies) {
+        const row = document.createElement("div");
+        row.className = "form-row policy-row";
+        const span = document.createElement("span");
+        span.textContent = `📣 ${p.text}`;
+        const btn = document.createElement("button");
+        btn.className = "ghost danger";
+        btn.textContent = "撤销";
+        btn.addEventListener("click", async () => {
+          if (!confirm(`确定撤销这条决策吗？\n「${p.text}」`)) return;
+          try {
+            await fetch(`/api/policies/${p.id}`, { method: "DELETE" });
+          } catch {
+            alert("撤销失败：无法连接 sidecar");
+            return;
+          }
+          refresh();
+        });
+        row.append(span, btn);
+        list.appendChild(row);
+      }
+    } catch {
+      $("policy-count").textContent = "";
+      list.innerHTML = '<p class="hint">⚠️ 读取决策失败，sidecar 可能已停止运行。</p>';
     }
   }
 
@@ -315,11 +325,17 @@ async function initPolicies() {
   $("btn-policy-publish").addEventListener("click", async () => {
     const text = $("policy-text").value.trim();
     if (!text) { alert("请先写下决策内容"); return; }
-    const res = await fetch("/api/policies", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ text })
-    });
+    let res;
+    try {
+      res = await fetch("/api/policies", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ text })
+      });
+    } catch {
+      alert("发布失败：无法连接 sidecar");
+      return;
+    }
     if (res.ok) {
       $("policy-text").value = "";
       statusEl.textContent = "已发布 ✓（返回办公室后 30 秒内生效）";
