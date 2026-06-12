@@ -97,4 +97,7 @@ test("静态托管不暴露 .git 与 sidecar 目录", async () => {
   assert.equal((await fetch(`${base()}/.git/config`)).status, 403);
   assert.equal((await fetch(`${base()}/sidecar/package.json`)).status, 403);
   assert.equal((await fetch(`${base()}/index.html`)).status, 200); // 正常文件不受影响
+  assert.equal((await fetch(`${base()}/%2egit/config`)).status, 403);
+  assert.equal((await fetch(`${base()}/%73idecar/package.json`)).status, 403);
+  assert.equal((await fetch(`${base()}/sidecar%2fpackage.json`)).status, 403);
 });

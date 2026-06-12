@@ -63,13 +63,16 @@ export function buildApp({ eventStore, policyStore, status }) {
   });
   app.delete("/api/policies/:id", (req, res) => res.json({ ok: policyStore.deactivate(req.params.id) }));
 
-  // 静态托管仓库根，但屏蔽点文件（.git 等）与 sidecar 自身（源码/数据库）
-  app.use("/sidecar", (req, res) => res.status(403).end());
+  // 静态托管仓库根，但屏蔽点文件（.git 等）与 sidecar 自身（源码/数据库）。
+  // 必须对解码后的路径判断——express.static 内部会解码百分号编码。
   app.use((req, res, next) => {
-    if (req.path.split("/").some(seg => seg.startsWith("."))) return res.status(403).end();
+    let decoded;
+    try { decoded = decodeURIComponent(req.path); } catch { return res.status(400).end(); }
+    const segs = decoded.split("/");
+    if (segs.some(s => s.startsWith(".")) || segs[1] === "sidecar") return res.status(403).end();
     next();
   });
-  app.use(express.static(FRONTEND_ROOT));
+  app.use(express.static(FRONTEND_ROOT, { dotfiles: "deny" }));
   return app;
 }
 
