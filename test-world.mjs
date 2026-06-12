@@ -67,4 +67,42 @@ w3.nextDay([]);
 if (w3.todayEvents.length < 1) throw new Error("无真实事件时应虚构补位");
 if (w3.todayEvents.some(e => e.real)) throw new Error("虚构事件不应带 real 标记");
 console.log("真实事件注入验证 ✓");
+// ---- Director × Feed：突发新闻、政策公告、跨日消费 ----
+class StubFeed {
+  constructor() { this.taken = 0; }
+  takeEvents(max) {
+    this.taken++;
+    return [{ id: "evt_f1", summary: "竞品突然宣布免费扩容", real: true }];
+  }
+  activePolicies() { return ["全员降本，禁止新增带宽采购"]; }
+}
+const agents4 = PERSONAS.slice(0, 3).map((p, i) => new StubAgent(p, "f" + i));
+const w4 = new World(DEFAULT_COMPANY);
+const logs4 = [];
+const feed4 = new StubFeed();
+const d4 = new Director(agents4, office, m => logs4.push(m), null, w4, feed4);
+
+// 突发新闻：所有人立即获得记忆，世界当日事件追加
+const evCountBefore = w4.todayEvents.length;
+d4.injectBreakingNews({ id: "evt_b1", summary: "服务器机房光缆被挖断" });
+if (w4.todayEvents.length !== evCountBefore + 1) throw new Error("突发事件应进当日事件");
+if (!agents4[0].memory.items.some(m => m.c.includes("光缆"))) throw new Error("突发事件应进记忆");
+if (!logs4.some(l => l.includes("📡"))) throw new Error("突发事件应打日志");
+
+// 政策公告：announced 写入全员高权重记忆
+d4.announcePolicyChange({
+  announced: [{ id: "pol_1", text: "全员降本，禁止新增带宽采购", active: true }],
+  revoked: []
+});
+const polMem = agents4[1].memory.items.find(m => m.c.includes("降本"));
+if (!polMem) throw new Error("政策应进入记忆");
+if (polMem.imp < 8) throw new Error("政策记忆应为高权重");
+d4.announcePolicyChange({ announced: [], revoked: ["pol_1"] });
+if (!agents4[0].memory.items.some(m => m.c.includes("撤销") || m.c.includes("调整"))) throw new Error("撤销应有公告");
+
+// 跨日：nextDay 应消费 feed.takeEvents
+for (let t = 0; t < 259; t += 0.1) d4.update(0.1);
+if (feed4.taken < 1) throw new Error("跨日应从 feed 取事件");
+if (!w4.todayEvents.some(e => e.real)) throw new Error("新一天应使用真实事件");
+console.log("Director × Feed 验证 ✓");
 console.log("ALL WORLD TESTS PASSED");

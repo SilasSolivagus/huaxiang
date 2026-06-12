@@ -33,12 +33,13 @@ export class Director {
    * @param {LLMClient|null} llm 可选的模型客户端
    * @param {World|null} world 可选的世界模型
    */
-  constructor(agents, office, log, llm = null, world = null) {
+  constructor(agents, office, log, llm = null, world = null, feed = null) {
     this.agents = agents;
     this.office = office;
     this.log = log;
     this.llm = llm;
     this.world = world;
+    this.feed = feed;
 
     this.day = world?.day ?? 1;
     this.clockMin = DAY_START;
@@ -122,6 +123,33 @@ export class Director {
     }
   }
 
+  /** 真实市场事件白天实时到达：作为突发新闻插入当前模拟日 */
+  injectBreakingNews(ev) {
+    const text = ev.summary || ev.title || "";
+    if (!text) return;
+    this.log(`📡 突发：${text}`, "log-meeting");
+    if (this.world) this.world.todayEvents.push({ id: ev.id, text, real: true });
+    for (const a of this.agents) {
+      this.remember(a, `市场快讯：${text}`, 7, "world");
+    }
+  }
+
+  /** 上层决策发布/撤销：高权重公告进入全员记忆 */
+  announcePolicyChange({ announced = [], revoked = [] }) {
+    for (const p of announced) {
+      this.log(`📣 管理层决策：${p.text}`, "log-meeting");
+      for (const a of this.agents) {
+        this.remember(a, `管理层决策：${p.text}`, 9, "world");
+      }
+    }
+    if (revoked.length > 0) {
+      this.log(`📣 管理层调整：有 ${revoked.length} 条决策被撤销`, "log-meeting");
+      for (const a of this.agents) {
+        this.remember(a, `管理层撤销了之前的一条决策`, 6, "world");
+      }
+    }
+  }
+
   // ---------- 隔离式发言生成 ----------
 
   /**
@@ -141,6 +169,7 @@ export class Director {
       this.llm.speak({
         persona: agent.persona,
         company: this.world?.companyBrief(),
+        policies: this.feed?.activePolicies() ?? [],
         memories: agent.memory.retrieve(scene, 6),
         scene,
         transcript
@@ -166,7 +195,7 @@ export class Director {
 
     // 一天结束，开始新的一天
     if (this.clockMin >= DAY_END) {
-      this.world?.nextDay();
+      this.world?.nextDay(this.feed?.takeEvents(3) ?? []);
       this.day = this.world?.day ?? this.day + 1;
       this.clockMin = DAY_START;
       this.currentPhase = null;

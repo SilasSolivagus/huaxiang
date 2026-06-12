@@ -101,7 +101,7 @@ export class LLMClient {
    * }
    * @returns {Promise<string|null>}
    */
-  async speak({ persona, company, memories = [], scene, transcript = [] }) {
+  async speak({ persona, company, policies = [], memories = [], scene, transcript = [] }) {
     if (!this.available) return null;
     return this.enqueue(async () => {
       try {
@@ -109,6 +109,9 @@ export class LLMClient {
           `你在一个办公室模拟中扮演「${persona.name}」（${persona.role}）。` +
           `你的性格画像：${persona.personality || "暂无"}。\n` +
           (company ? `你所在的公司：${company}\n` : "") +
+          (policies.length
+            ? `现行公司政策（管理层指令，你的发言和决定必须与之相符）：\n${policies.map(p => "- " + p).join("\n")}\n`
+            : "") +
           `规则：你只知道下面提供的你自己的记忆和你刚听到的话，不要编造你不可能知道的信息。` +
           `用第一人称说一句话，口语化、符合你的性格，不超过 40 个字。只输出这句话本身，不要引号、不要名字前缀。`;
         const user =
