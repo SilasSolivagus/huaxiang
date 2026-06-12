@@ -1,10 +1,9 @@
 // sidecar HTTP 服务：API + SSE + 静态托管前端。
-// buildApp 纯组装（可测试）；直接运行本文件时连真实依赖并启动采集循环。
+// buildApp 纯组装（可测试)；直接运行本文件时连真实依赖并启动采集循环。
 import express from "express";
 import { readFileSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { Worker } from "node:worker_threads";
 import Parser from "rss-parser";
 import { openDb } from "./db.js";
 import { EventStore } from "./eventStore.js";
@@ -26,31 +25,6 @@ export function loadConfig() {
     console.warn("config.json 解析失败，使用默认配置：", e.message);
     return defaults;
   }
-}
-
-// 通过 worker 线程同步获取一个空闲端口号。
-function getFreePortSync() {
-  const sab = new SharedArrayBuffer(8);
-  const arr = new Int32Array(sab);
-  const code = `
-    import { workerData } from 'worker_threads';
-    import { createServer } from 'net';
-    const arr = new Int32Array(workerData.sab);
-    const s = createServer();
-    s.listen(0, '127.0.0.1', () => {
-      const port = s.address().port;
-      s.close(() => {
-        Atomics.store(arr, 1, port);
-        Atomics.store(arr, 0, 1);
-        Atomics.notify(arr, 0);
-      });
-    });
-  `;
-  const w = new Worker(code, { eval: true, workerData: { sab } });
-  Atomics.wait(arr, 0, 0, 3000);
-  const port = Atomics.load(arr, 1);
-  w.terminate();
-  return port;
 }
 
 export function buildApp({ eventStore, policyStore, status }) {
@@ -90,22 +64,6 @@ export function buildApp({ eventStore, policyStore, status }) {
   app.delete("/api/policies/:id", (req, res) => res.json({ ok: policyStore.deactivate(req.params.id) }));
 
   app.use(express.static(FRONTEND_ROOT));
-
-  // 为了让 app.listen(0, host) 在测试中能同步取到 server.address()，
-  // 这里拦截 listen：端口为 0 时通过 worker 线程同步预分配一个空闲端口，
-  // 并在返回的 server 上提前暴露 address()，避免测试在首个 await 前读到 null。
-  const origListen = app.listen.bind(app);
-  app.listen = function (port, host, cb) {
-    if (port === 0 || port === undefined) {
-      port = getFreePortSync();
-    }
-    const server = origListen(port, host, cb);
-    const fakeAddr = { address: host || "127.0.0.1", family: "IPv4", port };
-    const origAddress = server.address.bind(server);
-    server.address = () => origAddress() ?? fakeAddr;
-    return server;
-  };
-
   return app;
 }
 

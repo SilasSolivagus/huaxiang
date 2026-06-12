@@ -5,19 +5,20 @@ import { EventStore } from "../src/eventStore.js";
 import { PolicyStore } from "../src/policyStore.js";
 import { buildApp } from "../src/server.js";
 
-function startTestServer() {
+async function startTestServer() {
   const db = openDb(":memory:");
   const eventStore = new EventStore(db);
   const policyStore = new PolicyStore(db);
   const status = { collectors: { rss: { enabled: false, lastRun: null, lastResult: null, reason: "test" } } };
   const app = buildApp({ eventStore, policyStore, status });
   const server = app.listen(0, "127.0.0.1");
+  await new Promise(resolve => server.once("listening", resolve));
   const base = () => `http://127.0.0.1:${server.address().port}`;
   return { server, base, eventStore, policyStore };
 }
 
 test("API 集成：health / snapshot / ack / policies", async () => {
-  const { server, base, eventStore } = startTestServer();
+  const { server, base, eventStore } = await startTestServer();
   after(() => server.close());
 
   const health = await (await fetch(`${base()}/api/health`)).json();
@@ -66,7 +67,7 @@ test("API 集成：health / snapshot / ack / policies", async () => {
 });
 
 test("SSE 流推送新事件", async () => {
-  const { server, base, eventStore } = startTestServer();
+  const { server, base, eventStore } = await startTestServer();
   after(() => server.close());
 
   const res = await fetch(`${base()}/api/stream`);
@@ -83,7 +84,7 @@ test("SSE 流推送新事件", async () => {
 });
 
 test("静态托管仓库根目录（index.html 可访问）", async () => {
-  const { server, base } = startTestServer();
+  const { server, base } = await startTestServer();
   after(() => server.close());
   const res = await fetch(`${base()}/index.html`);
   assert.equal(res.status, 200);
