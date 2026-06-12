@@ -63,6 +63,12 @@ export function buildApp({ eventStore, policyStore, status }) {
   });
   app.delete("/api/policies/:id", (req, res) => res.json({ ok: policyStore.deactivate(req.params.id) }));
 
+  // 静态托管仓库根，但屏蔽点文件（.git 等）与 sidecar 自身（源码/数据库）
+  app.use("/sidecar", (req, res) => res.status(403).end());
+  app.use((req, res, next) => {
+    if (req.path.split("/").some(seg => seg.startsWith("."))) return res.status(403).end();
+    next();
+  });
   app.use(express.static(FRONTEND_ROOT));
   return app;
 }

@@ -90,3 +90,11 @@ test("静态托管仓库根目录（index.html 可访问）", async () => {
   assert.equal(res.status, 200);
   assert.match(await res.text(), /画像办公室|<canvas|scene/);
 });
+
+test("静态托管不暴露 .git 与 sidecar 目录", async () => {
+  const { server, base } = await startTestServer();
+  after(() => server.close());
+  assert.equal((await fetch(`${base()}/.git/config`)).status, 403);
+  assert.equal((await fetch(`${base()}/sidecar/package.json`)).status, 403);
+  assert.equal((await fetch(`${base()}/index.html`)).status, 200); // 正常文件不受影响
+});
