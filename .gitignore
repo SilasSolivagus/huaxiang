@@ -1,4 +1,7 @@
 node_modules/
+# 根目录的 package.json 只是本地跑 Node 测试装 three 用的，不入库（sidecar/package.json 正常跟踪）
+/package.json
+/package-lock.json
 sidecar/.env
 sidecar/config.json
 sidecar/data/
