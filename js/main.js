@@ -9,6 +9,7 @@ import { MemoryStream } from "./memory.js";
 import { buildOffice } from "./office.js";
 import { Agent } from "./agent.js";
 import { Director } from "./director.js";
+import { Feed } from "./feed.js";
 
 // 从管理后台保存的配置加载人物画像、模型设置与公司设定
 const config = loadConfig();
@@ -97,7 +98,27 @@ function log(msg, cls = "") {
 }
 
 log(`☀️ 第 ${world.day} 天开始了，团队陆续到岗`, "log-meeting");
-director = new Director(agents, office, log, llm, world);
+const feed = new Feed();
+director = new Director(agents, office, log, llm, world, feed);
+feed.onBreaking = ev => director.injectBreakingNews(ev);
+feed.onPolicyChange = ch => director.announcePolicyChange(ch);
+feed.onStatus = on => {
+  const chip = document.getElementById("feed-chip");
+  if (!chip) return;
+  chip.textContent = on ? "📡数据" : "📡离线";
+  chip.classList.toggle("on", on);
+  chip.title = on
+    ? "已连接本地 sidecar，真实市场动态实时进入办公室"
+    : "未检测到 sidecar，运行纯虚构模式（启动方式见 README）";
+};
+feed.connect().then(ok => {
+  if (!ok) return;
+  log("📡 已连接本地数据服务，真实市场动态将实时进入办公室", "log-meeting");
+  // 开场把积压的真实事件（最多 2 条）作为突发新闻陆续放出
+  feed.takeEvents(2).forEach((ev, i) => {
+    setTimeout(() => director.injectBreakingNews(ev), 4000 + i * 9000);
+  });
+});
 if (llm.enabled) {
   log(`✨ AI 对话已启用（${config.model.model}），会议和协作将实时生成对话`, "log-collab");
 }
@@ -224,7 +245,7 @@ function renderDashboard() {
     metric("服务器", m.serverOk ? "正常" : "故障", m.serverOk ? "good" : "bad") +
     metric("现金跑道", `${m.runway} 个月`, m.runway < 6 ? "bad" : "");
   dash.events.innerHTML = world.todayEvents
-    .map(e => `<div class="dash-event">📰 ${escapeHtml(e.text)}</div>`)
+    .map(e => `<div class="dash-event">${e.real ? "📡" : "🎭"} ${escapeHtml(e.text)}</div>`)
     .join("");
 }
 
