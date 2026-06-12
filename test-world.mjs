@@ -53,4 +53,18 @@ const heardMems = a0mem.filter(m => m.type === "heard").length;
 console.log("世界公告记忆:", worldMems, "听到的话:", heardMems);
 if (worldMems === 0) throw new Error("no world broadcast memories");
 if (heardMems === 0) throw new Error("no hearing memories");
+// ---- 真实事件优先、虚构补位 ----
+const w3 = new World(DEFAULT_COMPANY);
+const realEvents = [
+  { id: "evt_r1", summary: "百度网盘限速上热搜，新注册暴涨", real: true },
+  { id: "evt_r2", summary: "带宽结算新规落地", real: true }
+];
+w3.nextDay(realEvents);
+if (w3.todayEvents.length !== 2) throw new Error("真实事件应全部成为当日事件");
+if (!w3.todayEvents[0].real) throw new Error("真实事件应带 real 标记");
+if (w3.todayEvents[0].text !== "百度网盘限速上热搜，新注册暴涨") throw new Error("事件文本应取 summary");
+w3.nextDay([]);
+if (w3.todayEvents.length < 1) throw new Error("无真实事件时应虚构补位");
+if (w3.todayEvents.some(e => e.real)) throw new Error("虚构事件不应带 real 标记");
+console.log("真实事件注入验证 ✓");
 console.log("ALL WORLD TESTS PASSED");

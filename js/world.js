@@ -116,25 +116,31 @@ export class World {
     if (hasStorage()) localStorage.removeItem(WORLD_KEY);
   }
 
-  /** 生成今日 1~2 个市场事件并应用其影响 */
-  generateEvents() {
+  /** 生成今日事件：优先用真实市场事件（最多 3 条），没有才虚构补位 */
+  generateEvents(realEvents = []) {
     this.todayEvents = [];
-    const competitor = COMPETITORS[Math.floor(Math.random() * COMPETITORS.length)];
-    const n = Math.random() < 0.45 ? 2 : 1;
-    const used = new Set();
-    for (let i = 0; i < n; i++) {
-      const ev = pickWeighted(this.eventPool, used);
-      used.add(ev.id);
-      const text = ev.text(this.company, competitor);
-      ev.effect(this.metrics);
-      this.todayEvents.push({ id: ev.id, text });
+    for (const ev of realEvents.slice(0, 3)) {
+      // 真实事件不直接改指标（指标影响归市场反应模拟器，P3）
+      this.todayEvents.push({ id: ev.id, text: ev.summary || ev.title, real: true });
+    }
+    if (this.todayEvents.length === 0) {
+      const competitor = COMPETITORS[Math.floor(Math.random() * COMPETITORS.length)];
+      const n = Math.random() < 0.45 ? 2 : 1;
+      const used = new Set();
+      for (let i = 0; i < n; i++) {
+        const ev = pickWeighted(this.eventPool, used);
+        used.add(ev.id);
+        const text = ev.text(this.company, competitor);
+        ev.effect(this.metrics);
+        this.todayEvents.push({ id: ev.id, text });
+      }
     }
     this.clampMetrics();
     this.save();
   }
 
-  /** 进入新的一天：指标自然演化 + 新事件 */
-  nextDay() {
+  /** 进入新的一天：指标自然演化 + 新事件（realEvents 来自 sidecar） */
+  nextDay(realEvents = []) {
     const m = this.metrics;
     // 服务器故障第二天恢复
     if (!m.serverOk) m.serverOk = true;
@@ -145,7 +151,7 @@ export class World {
     m.runway -= 0.05;
     this.clampMetrics();
     this.day += 1;
-    this.generateEvents();
+    this.generateEvents(realEvents);
   }
 
   clampMetrics() {
