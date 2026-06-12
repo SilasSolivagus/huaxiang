@@ -5,3 +5,4 @@ node_modules/
 sidecar/.env
 sidecar/config.json
 sidecar/data/
+.gstack/
