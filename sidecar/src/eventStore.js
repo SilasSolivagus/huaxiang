@@ -16,7 +16,9 @@ export class EventStore {
       ev.id, ev.ts, ev.source, ev.kind, ev.title, ev.summary, ev.url, ev.relevance,
       ev.suggestedImpact ? JSON.stringify(ev.suggestedImpact) : null
     );
-    for (const fn of this.subs) fn(ev);
+    for (const fn of this.subs) {
+      try { fn(ev); } catch (e) { console.warn("EventStore 订阅者异常：", e.message); }
+    }
     return ev;
   }
 

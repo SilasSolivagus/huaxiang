@@ -50,3 +50,15 @@ test("todayCount 只统计近 24 小时", () => {
   s.add({ source: "manual", title: "旧的", ts: Date.now() - 2 * 86400000 });
   assert.equal(s.todayCount(), 1);
 });
+
+test("订阅者抛异常不影响 add 和其他订阅者", () => {
+  const s = freshStore();
+  const got = [];
+  s.subscribe(() => { throw new Error("订阅者炸了"); });
+  s.subscribe(ev => got.push(ev));
+  let ev;
+  assert.doesNotThrow(() => { ev = s.add({ source: "manual", title: "x" }); });
+  assert.equal(got.length, 1);
+  assert.equal(s.listUnconsumed().length, 1);
+  assert.equal(ev.title, "x");
+});
