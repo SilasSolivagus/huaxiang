@@ -92,7 +92,8 @@ html, body {
   color: #fff;
 }
 
-#ai-chip {
+#ai-chip,
+#feed-chip {
   font-size: 10px;
   color: #6b7686;
   background: rgba(255, 255, 255, 0.06);
@@ -104,6 +105,11 @@ html, body {
 #ai-chip.on {
   color: #ffd479;
   background: rgba(255, 212, 121, 0.15);
+}
+
+#feed-chip.on {
+  color: #7fd49a;
+  background: rgba(127, 212, 154, 0.15);
 }
 
 #admin-link {
@@ -392,6 +398,7 @@ html, body {
   #time-label { font-size: 14px; }
   #phase-label { display: none; }
   #ai-chip { display: none; }
+  #feed-chip { display: none; }
   #admin-link { width: 26px; height: 26px; }
   #roster { top: 52px; justify-content: flex-start; left: 0; transform: none; max-width: 100vw; padding: 4px 8px; }
   .roster-chip .activity { display: none; }
