@@ -7,6 +7,11 @@ export function urlHash(url) {
   return createHash("sha256").update(String(url)).digest("hex");
 }
 
+function clampRelevance(v) {
+  const n = Number(v);
+  return Number.isFinite(n) ? Math.max(0, Math.min(10, n)) : 5;
+}
+
 export function normalizeEvent(raw) {
   if (!raw || typeof raw !== "object") throw new Error("event must be an object");
   const title = String(raw.title || "").trim();
@@ -14,13 +19,13 @@ export function normalizeEvent(raw) {
   if (!SOURCES.has(raw.source)) throw new Error(`bad event.source: ${raw.source}`);
   return {
     id: raw.id || `evt_${randomUUID().slice(0, 8)}`,
-    ts: Number(raw.ts) || Date.now(),
+    ts: Number.isFinite(Number(raw.ts)) ? Number(raw.ts) : Date.now(),
     source: raw.source,
     kind: raw.kind || "market",
     title: title.slice(0, 200),
     summary: String(raw.summary || title).trim().slice(0, 200),
     url: raw.url ? String(raw.url) : null,
-    relevance: Math.max(0, Math.min(10, Number(raw.relevance ?? 5) || 0)),
+    relevance: clampRelevance(raw.relevance),
     suggestedImpact: raw.suggestedImpact ?? null,
     consumed: false
   };

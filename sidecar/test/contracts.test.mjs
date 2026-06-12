@@ -21,6 +21,14 @@ test("normalizeEvent 拒绝空标题和非法 source", () => {
 test("normalizeEvent 把 relevance 钳制在 0~10", () => {
   assert.equal(normalizeEvent({ source: "manual", title: "x", relevance: 99 }).relevance, 10);
   assert.equal(normalizeEvent({ source: "manual", title: "x", relevance: -3 }).relevance, 0);
+  assert.equal(normalizeEvent({ source: "manual", title: "x", relevance: "abc" }).relevance, 5);
+  assert.equal(normalizeEvent({ source: "manual", title: "x", relevance: 0 }).relevance, 0);
+});
+
+test("显式传入的 ts 被保留（包括 0），缺省才用当前时间", () => {
+  assert.equal(normalizeEvent({ source: "manual", title: "x", ts: 0 }).ts, 0);
+  assert.equal(normalizeEvent({ source: "manual", title: "x", ts: 12345 }).ts, 12345);
+  assert.ok(normalizeEvent({ source: "manual", title: "x" }).ts > 1000000000000);
 });
 
 test("urlHash 稳定且区分大小写敏感的不同 URL", () => {
