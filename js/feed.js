@@ -59,15 +59,13 @@ export class Feed {
 
     const es = new EventSource("/api/stream");
     es.onmessage = e => {
-      try {
-        const ev = JSON.parse(e.data);
-        if (this.onBreaking) {
-          this.onBreaking(ev);
-          this.ack([ev.id]);
-        } else {
-          this.pending.push(ev);
-        }
-      } catch {}
+      let ev;
+      try { ev = JSON.parse(e.data); } catch { return; }
+      if (this.onBreaking) {
+        try { this.onBreaking(ev); } finally { this.ack([ev.id]); }
+      } else {
+        this.pending.push(ev);
+      }
     };
     es.onerror = () => { /* EventSource 自带重连 */ };
 
