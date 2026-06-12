@@ -264,3 +264,71 @@ $("import-file").addEventListener("change", async e => {
 renderModel();
 renderCompany();
 renderPersonas();
+
+// ---------- 上层决策（需要 sidecar） ----------
+async function initPolicies() {
+  const offline = $("policy-offline");
+  const list = $("policy-list");
+  const statusEl = $("policy-status");
+
+  async function refresh() {
+    const policies = await (await fetch("/api/policies")).json();
+    $("policy-count").textContent = `（现行 ${policies.length} 条）`;
+    list.innerHTML = policies.length === 0
+      ? '<p class="hint">还没有现行决策。</p>'
+      : "";
+    for (const p of policies) {
+      const row = document.createElement("div");
+      row.className = "form-row policy-row";
+      const span = document.createElement("span");
+      span.textContent = `📣 ${p.text}`;
+      const btn = document.createElement("button");
+      btn.className = "ghost danger";
+      btn.textContent = "撤销";
+      btn.addEventListener("click", async () => {
+        if (!confirm(`确定撤销这条决策吗？\n「${p.text}」`)) return;
+        await fetch(`/api/policies/${p.id}`, { method: "DELETE" });
+        refresh();
+      });
+      row.append(span, btn);
+      list.appendChild(row);
+    }
+  }
+
+  try {
+    const health = await (await fetch("/api/health", { signal: AbortSignal.timeout(2000) })).json();
+    if (!health.ok) throw new Error("bad health");
+    const rss = health.collectors?.rss;
+    if (rss && !rss.enabled && rss.reason) {
+      offline.hidden = false;
+      offline.textContent = `ℹ️ sidecar 已连接，但 RSS 采集器未启用：${rss.reason}`;
+    }
+  } catch {
+    offline.hidden = false;
+    $("btn-policy-publish").disabled = true;
+    $("policy-text").disabled = true;
+    return;
+  }
+
+  await refresh();
+
+  $("btn-policy-publish").addEventListener("click", async () => {
+    const text = $("policy-text").value.trim();
+    if (!text) { alert("请先写下决策内容"); return; }
+    const res = await fetch("/api/policies", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ text })
+    });
+    if (res.ok) {
+      $("policy-text").value = "";
+      statusEl.textContent = "已发布 ✓（返回办公室后 30 秒内生效）";
+      setTimeout(() => { statusEl.textContent = ""; }, 4000);
+      refresh();
+    } else {
+      alert(`发布失败：${(await res.json()).error || res.status}`);
+    }
+  });
+}
+
+initPolicies();

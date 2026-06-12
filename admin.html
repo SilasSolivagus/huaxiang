@@ -111,6 +111,25 @@
       </div>
     </section>
 
+    <!-- 上层决策（需要本地 sidecar） -->
+    <section class="card">
+      <h2>🏛️ 上层决策 <span id="policy-count" class="count"></span></h2>
+      <p class="hint">
+        发布的决策会作为公司公告进入<strong>所有人的记忆</strong>，并持续约束他们之后的发言，直到撤销。
+        需要本地 sidecar 运行，并从 sidecar 地址打开本页（如 <code>http://127.0.0.1:7878/admin.html</code>）。
+      </p>
+      <div id="policy-offline" class="hint" hidden>⚠️ 未检测到 sidecar，本区块不可用。启动方式见 README。</div>
+      <div id="policy-list"></div>
+      <div class="form-row">
+        <label>新决策</label>
+        <textarea id="policy-text" placeholder="例如：本季度冻结一切新功能开发，全员优先降本，带宽成本必须下降 15%"></textarea>
+      </div>
+      <div class="form-actions">
+        <button id="btn-policy-publish">发布决策</button>
+        <span id="policy-status"></span>
+      </div>
+    </section>
+
     <!-- 人物管理 -->
     <section class="card">
       <h2>🧑‍💼 人物管理 <span id="persona-count" class="count"></span></h2>
