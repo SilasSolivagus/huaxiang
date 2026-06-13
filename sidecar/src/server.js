@@ -19,7 +19,8 @@ export function loadConfig() {
   const defaults = {
     port: 7878, company: "", feeds: [], relevanceThreshold: 6, rssIntervalMinutes: 30,
     repoPath: "", repoDigestMaxCommits: 10,
-    embedEnabled: true, embedModel: "Xenova/bge-small-zh-v1.5"
+    embedEnabled: true, embedModel: "Xenova/bge-small-zh-v1.5",
+    watchUrls: [], watchIntervalMinutes: 120
   };
   const path = join(SIDECAR_ROOT, "config.json");
   if (!existsSync(path)) return defaults;
@@ -136,6 +137,13 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const llm = new SidecarLLM();
   const parser = new Parser({ timeout: 10000 });
 
+  const { PageStore } = await import("./pageStore.js");
+  const { runWatchOnce } = await import("./collectors/watch.js");
+  const pageStore = new PageStore(db);
+  const watchReason = !llm.enabled
+    ? "未配置 SIDECAR_API_KEY / SIDECAR_MODEL"
+    : (cfg.watchUrls && cfg.watchUrls.length ? null : "config.json 未配置 watchUrls");
+
   let repo = null;
   let repoReason = "未配置 repoPath（见 config.example.json）";
   if (cfg.repoPath) {
@@ -161,7 +169,10 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   }
 
   const status = {
-    collectors: { rss: { enabled: !rssReason, lastRun: null, lastResult: null, reason: rssReason } },
+    collectors: {
+      rss: { enabled: !rssReason, lastRun: null, lastResult: null, reason: rssReason },
+      watch: { enabled: !watchReason, lastRun: null, lastResult: null, reason: watchReason, urls: (cfg.watchUrls || []).length }
+    },
     repo: { enabled: !!repo, path: cfg.repoPath || "", reason: repoReason },
     embed: { enabled: !!embedder, model: cfg.embedModel }
   };
@@ -177,6 +188,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   app.listen(cfg.port, "127.0.0.1", () => {
     console.log(`sidecar 运行中：http://127.0.0.1:${cfg.port}（办公室页面也从这里打开）`);
     if (rssReason) console.log(`⚠️ RSS 采集器未启用：${rssReason}`);
+    if (watchReason) console.log(`ℹ️ 竞品页监控未启用：${watchReason}`);
     if (repoReason) console.log(`ℹ️ 代码仓库未挂载：${repoReason}`);
     else console.log(`📂 已挂载只读代码仓库：${cfg.repoPath}`);
   });
@@ -197,4 +209,28 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   }
   rssTick();
   setInterval(rssTick, cfg.rssIntervalMinutes * 60 * 1000);
+
+  async function watchTick() {
+    if (!status.collectors.watch.enabled) return;
+    status.collectors.watch.lastRun = Date.now();
+    try {
+      status.collectors.watch.lastResult = await runWatchOnce({
+        urls: cfg.watchUrls,
+        fetchPage: async (url) => {
+          const res = await fetch(url, { signal: AbortSignal.timeout(15000), headers: { "user-agent": "Mozilla/5.0 huaxiang-watch" } });
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          return await res.text();
+        },
+        llm, store: eventStore, pageStore,
+        companyBrief: cfg.company, threshold: cfg.relevanceThreshold
+      });
+      const r = status.collectors.watch.lastResult;
+      console.log(`竞品页监控完成：查 ${r.checked} 页，变化 ${r.changed}，入库 ${r.inserted}`);
+    } catch (e) {
+      status.collectors.watch.lastResult = { error: e.message };
+      console.warn("竞品页监控异常：", e.message);
+    }
+  }
+  watchTick();
+  setInterval(watchTick, cfg.watchIntervalMinutes * 60 * 1000);
 }

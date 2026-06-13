@@ -10,5 +10,7 @@
   "repoPath": "",
   "repoDigestMaxCommits": 10,
   "embedEnabled": true,
-  "embedModel": "Xenova/bge-small-zh-v1.5"
+  "embedModel": "Xenova/bge-small-zh-v1.5",
+  "watchUrls": [],
+  "watchIntervalMinutes": 120
 }
