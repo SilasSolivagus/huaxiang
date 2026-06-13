@@ -16,6 +16,7 @@
 import { DAILY_SCHEDULE } from "./personas.js";
 import { buildItems, composeAgentSummary } from "./board.js";
 import { minutesEmpty, minutesToText } from "./cognition/minutes.js";
+import { newActionItem } from "./cognition/actionItems.js";
 
 const MINUTES_PER_SECOND = 2.2;   // 1 秒现实时间 = 2.2 分钟模拟时间（1x 速度）
 const DAY_START = 9 * 60;          // 09:00
@@ -44,7 +45,7 @@ export class Director {
    * @param {World|null} world 可选的世界模型
    * @param {Feed|null} feed 可选的真实数据源
    */
-  constructor(agents, office, log, llm = null, world = null, feed = null, board = null) {
+  constructor(agents, office, log, llm = null, world = null, feed = null, board = null, actionItems = null) {
     this.agents = agents;
     this.office = office;
     this.log = log;
@@ -52,6 +53,8 @@ export class Director {
     this.world = world;
     this.feed = feed;
     this.board = board;
+    this.actionItems = actionItems;
+    this.pendingMarketFeedback = [];   // 上一日市场反馈，次日开工广播进全员记忆
 
     this.todayRecord = freshRecord();   // 当日事实累积（给看板）
     this.todayHighlights = [];          // 当日会议/协作发言摘录（给看板 AI）
@@ -141,6 +144,13 @@ export class Director {
       for (const ev of this.world.todayEvents) {
         this.remember(a, `市场动态：${ev.text}`, 7, "world");
       }
+    }
+    if (this.pendingMarketFeedback.length) {
+      for (const fb of this.pendingMarketFeedback) {
+        this.log(`💬 市场反馈：${fb}`, "log-meeting");
+        for (const a of this.agents) this.remember(a, `市场反馈：${fb}`, 7, "world");
+      }
+      this.pendingMarketFeedback = [];
     }
   }
 
@@ -266,8 +276,10 @@ export class Director {
     // 一天结束，开始新的一天
     if (this.clockMin >= DAY_END) {
       this.runDailyDigest(this.day);   // 先沉淀今天的看板，再翻篇
-      this.world?.nextDay(this.feed?.takeEvents(3) ?? []);
+      const shipped = this.actionItems ? this.actionItems.advance(this.day + 1) : [];
+      this.world?.nextDay(this.feed?.takeEvents(3) ?? [], shipped.length);
       this.day = this.world?.day ?? this.day + 1;
+      this.runMarketReaction(shipped);
       this.clockMin = DAY_START;
       this.currentPhase = null;
       this.tasks = [];
@@ -640,10 +652,32 @@ export class Director {
           if (owner && crew.includes(owner)) {
             this.remember(owner, `行动项（${phase.label}）：${item.what}`, 7, "action");
           }
+          this.actionItems?.add(newActionItem({ what: item.what, owner: item.owner, zone, day }));
         }
         this.log(`📋 ${phase.label}纪要：${m.decisions.length} 决议 / ${m.risks.length} 风险 / ${m.actionItems.length} 行动项`, "log-meeting");
       })
       .catch(() => {});
+  }
+
+  /** 日终市场反应：上线改进喂模型 → 指标增量落到 world + 市场反馈排进次日全员记忆。 */
+  runMarketReaction(shipped = []) {
+    if (!this.llm?.available || !this.world) return Promise.resolve();
+    const shippedTexts = shipped.map(s => s.what);
+    return this.llm.marketReaction({
+      company: this.world.companyBrief?.(),
+      day: this.day,
+      metrics: this.world.metricsSummary?.(),
+      shipped: shippedTexts,
+      realEvents: (this.world.todayEvents || []).map(e => e.text),
+      policies: this.feed?.activePolicies?.() ?? []
+    }).then(r => {
+      if (!r) return;
+      this.world.applyMarketDeltas(r.deltas);
+      if (r.competitorMove) this.pendingMarketFeedback.push(r.competitorMove);
+      this.pendingMarketFeedback.push(...r.feedback);
+      const reason = r.reasons[0] ? `（${r.reasons[0]}）` : "";
+      this.log(`📈 市场反应：满意度 ${fmtDelta(r.deltas.sat)}、日活 ${fmtDelta(r.deltas.dau)}${reason}`, "log-meeting");
+    }).catch(() => {});
   }
 }
 
@@ -656,6 +690,11 @@ function freshRecord() {
 }
 
 const DOMAIN_TERMS = ["限速", "带宽", "直链", "上传", "下载", "分享", "存储", "会员"];
+
+function fmtDelta(n) {
+  const v = Number(n) || 0;
+  return v > 0 ? `+${v}` : `${v}`;
+}
 
 export function codeRefNote(hits) {
   if (!Array.isArray(hits) || hits.length === 0) return "";
