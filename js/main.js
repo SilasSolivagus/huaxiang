@@ -94,6 +94,16 @@ const agents = personas.map((p) => {
   return a;
 });
 
+// 董事长化身：复用 Agent 类，但不加入自主 agents 数组、不加入点击拾取
+const chairmanPersona = {
+  id: "chairman", name: "董事长", role: "董事长",
+  color: 0xffce54, skin: 0xf2c9a4, hair: 0x2a2a2a,
+  personality: "公司董事长，偶尔到场视察、面谈、发话。",
+  lines: { work: ["继续"], meeting: ["大家辛苦"], collab: ["嗯"], coffee: ["随便聊聊"] }
+};
+const chairman = new Agent(chairmanPersona, sceneWorld);
+chairman.setPosition(0, 7);   // 从门口入场
+
 // 用于点击拾取
 const pickMeshes = [];
 agents.forEach(a => {
@@ -392,6 +402,7 @@ function tick() {
   if (dt > 0) {
     director.update(dt);
     for (const a of agents) a.update(dt);
+    chairman.update(dt);
   }
 
   // 选中人物时镜头轻轻跟随
