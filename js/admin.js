@@ -4,6 +4,7 @@ import { loadConfig, saveConfig, resetConfig, defaultConfig, MAX_PERSONAS } from
 import { LLMClient } from "./llm.js";
 import { MemoryStream } from "./memory.js";
 import { World } from "./world.js";
+import { Board } from "./board.js";
 
 let config = loadConfig();
 
@@ -28,6 +29,7 @@ $("btn-clear-memory").addEventListener("click", () => {
   if (confirm("确定清空所有人物的记忆流，并把产品指标重置回第 1 天吗？\n（人物画像和模型配置不受影响）")) {
     MemoryStream.clearAll();
     World.reset();
+    Board.clearAll();
     alert("已清空。返回办公室后将从第 1 天重新开始。");
   }
 });

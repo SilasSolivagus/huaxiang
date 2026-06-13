@@ -99,7 +99,7 @@ function drawBubble(bubble, text) {
 // ---------- 人物建模 ----------
 function buildBody(persona) {
   const g = new THREE.Group();
-  const mat = (c) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.8 });
+  const mat = (c) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.6, metalness: 0.05 });
 
   // 腿
   const legs = new THREE.Group();

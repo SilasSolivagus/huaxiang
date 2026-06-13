@@ -2,6 +2,7 @@
 
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import { loadConfig, runtimePersonas } from "./store.js";
 import { LLMClient } from "./llm.js";
 import { World } from "./world.js";
@@ -10,6 +11,7 @@ import { buildOffice } from "./office.js";
 import { Agent } from "./agent.js";
 import { Director } from "./director.js";
 import { Feed } from "./feed.js";
+import { Board } from "./board.js";
 
 // 从管理后台保存的配置加载人物画像、模型设置与公司设定
 const config = loadConfig();
@@ -24,10 +26,17 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;   // 更柔和、更有层次的影调
+renderer.toneMappingExposure = 1.08;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x232936);
-scene.fog = new THREE.Fog(0x232936, 32, 60);
+scene.background = new THREE.Color(0x2b3340);
+scene.fog = new THREE.Fog(0x2b3340, 52, 96);
+
+// 室内环境光照（PBR 反射），低多边形也能立刻通透有质感
+const pmrem = new THREE.PMREMGenerator(renderer);
+scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
 
 // ---------- 相机与控制 ----------
 const camera = new THREE.PerspectiveCamera(
@@ -45,18 +54,25 @@ controls.maxPolarAngle = Math.PI / 2 - 0.1;
 controls.enablePan = true;
 
 // ---------- 灯光 ----------
-scene.add(new THREE.HemisphereLight(0xffffff, 0x55606e, 0.85));
-const sun = new THREE.DirectionalLight(0xfff2dd, 1.6);
-sun.position.set(9, 16, 7);
+// 暖色天光 + 冷色地面反光，营造室内氛围
+scene.add(new THREE.HemisphereLight(0xfff4e6, 0x39414e, 0.55));
+// 主光（暖）：投影覆盖整个加宽后的场景
+const sun = new THREE.DirectionalLight(0xffe8c4, 2.1);
+sun.position.set(14, 24, 12);
 sun.castShadow = true;
 sun.shadow.mapSize.set(2048, 2048);
-sun.shadow.camera.left = -16;
-sun.shadow.camera.right = 16;
+sun.shadow.camera.left = -22;
+sun.shadow.camera.right = 22;
 sun.shadow.camera.top = 16;
 sun.shadow.camera.bottom = -16;
-sun.shadow.camera.far = 45;
-sun.shadow.bias = -0.0005;
+sun.shadow.camera.far = 72;
+sun.shadow.bias = -0.0004;
+sun.shadow.normalBias = 0.02;
 scene.add(sun);
+// 补光（冷）：压暗面提亮，减少死黑
+const fill = new THREE.DirectionalLight(0xbcd4ff, 0.45);
+fill.position.set(-12, 14, -10);
+scene.add(fill);
 
 // ---------- 场景与人物 ----------
 const office = buildOffice(scene);
@@ -106,7 +122,9 @@ function log(msg, cls = "") {
 
 log(`☀️ 第 ${world.day} 天开始了，团队陆续到岗`, "log-meeting");
 const feed = new Feed();
-director = new Director(agents, office, log, llm, world, feed);
+const board = new Board();
+director = new Director(agents, office, log, llm, world, feed, board);
+board.onUpdate = () => renderBoard();
 feed.onBreaking = ev => director.injectBreakingNews(ev);
 feed.onPolicyChange = ch => director.announcePolicyChange(ch);
 feed.onStatus = on => {
@@ -194,6 +212,15 @@ function selectAgent(a) {
   document.getElementById("profile-name").textContent = a.persona.name;
   document.getElementById("profile-role").textContent = a.persona.role;
   document.getElementById("profile-personality").textContent = a.persona.personality;
+  renderSummary(a);
+}
+
+// 个人当日小结（来自看板）
+function renderSummary(a) {
+  const box = document.getElementById("profile-summary");
+  if (!box) return;
+  const s = board.summaryFor(a.persona.id);
+  box.textContent = s ? `第${s.day}天：${s.text}` : "今天还没有小结，下班后生成。";
 }
 
 document.getElementById("profile-close").addEventListener("click", () => {
@@ -217,6 +244,55 @@ function renderMemories(a) {
 function escapeHtml(s) {
   return s.replace(/[&<>"]/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[ch]));
 }
+
+// ---------- 进展看板 ----------
+const boardPanel = document.getElementById("board");
+const TYPE_CLASS = { "进展": "bi-progress", "决策": "bi-decision", "应对": "bi-response" };
+
+function renderBoard() {
+  const list = document.getElementById("board-list");
+  const empty = document.getElementById("board-empty");
+  if (!list) return;
+  const days = board.recent(8);
+  if (days.length === 0) {
+    empty.style.display = "";
+    list.innerHTML = "";
+  } else {
+    empty.style.display = "none";
+    list.innerHTML = days.map(d =>
+      `<div class="board-day"><div class="board-day-h">第 ${d.day} 天</div>` +
+      d.items.map((it, i) =>
+        `<div class="board-item${board.isNew(d.day, i) ? " is-new" : ""}">` +
+        `<span class="bi-tag ${TYPE_CLASS[it.type] || ""}">${it.type}</span>` +
+        `${escapeHtml(it.text)}</div>`
+      ).join("") + `</div>`
+    ).join("");
+  }
+  // 未看条目数角标（仅在面板收起时提示）
+  const badge = document.getElementById("board-new");
+  const n = board.newCount();
+  if (n > 0 && boardPanel.classList.contains("collapsed")) {
+    badge.textContent = n;
+    badge.classList.remove("hidden");
+  } else {
+    badge.classList.add("hidden");
+  }
+}
+
+document.getElementById("board-toggle").addEventListener("click", () => {
+  boardPanel.classList.toggle("collapsed");
+  const collapsed = boardPanel.classList.contains("collapsed");
+  document.getElementById("board-toggle").textContent = collapsed ? "＋" : "－";
+  if (!collapsed) { board.markSeen(); }   // 展开即视为已看
+  renderBoard();
+});
+
+// 手机默认收起看板
+if (window.innerWidth < 640) {
+  boardPanel.classList.add("collapsed");
+  document.getElementById("board-toggle").textContent = "＋";
+}
+renderBoard();
 
 // ---------- 公司仪表盘 ----------
 const dash = {
@@ -328,7 +404,7 @@ function tick() {
     phaseLabel.textContent = director.phaseLabel;
     for (const a of agents) chipActivity.get(a).textContent = a.activity;
     renderDashboard();
-    if (selectedAgent) renderMemories(selectedAgent);
+    if (selectedAgent) { renderMemories(selectedAgent); renderSummary(selectedAgent); }
   }
 
   controls.update();

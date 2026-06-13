@@ -155,6 +155,42 @@ export class LLMClient {
     });
   }
 
+  /**
+   * 团队当日简报：把当天的事实和讨论高亮，提炼成结构化的「进展 / 决策 / 应对」条目。
+   * @param {object} opts { company, day, facts: string, highlights: string[] }
+   * @returns {Promise<Array<{type,text}>|null>} 失败/不可用返回 null（调用方回退确定性提炼）
+   */
+  async digestDay({ company, day, facts, highlights = [] }) {
+    if (!this.available) return null;
+    return this.enqueue(async () => {
+      try {
+        const system =
+          (company ? `公司背景：${company}\n` : "") +
+          `你是团队助理，请把第 ${day} 天发生的事提炼成 2~5 条关键条目。每条标注类型：` +
+          `「进展」（做出来的成果/对齐的事）、「决策」（拍板的方向/政策）、「应对」（针对市场动态采取的态度或动作）。` +
+          `每条不超过 40 字，具体、可读。只输出 JSON 数组，形如 ` +
+          `[{"type":"进展","text":"……"},{"type":"应对","text":"……"}]，不要任何其他文字。`;
+        const user =
+          `当天事实：\n${facts || "（无）"}\n\n` +
+          (highlights.length ? `当天讨论摘录：\n${highlights.slice(0, 20).join("\n")}\n` : "");
+        const raw = await this.chatRaw(system, user, 700);
+        const clean = raw.replace(/^```(json)?\s*/m, "").replace(/```\s*$/m, "").trim();
+        const arr = JSON.parse(clean);
+        if (!Array.isArray(arr)) return null;
+        this.lastError = null;
+        return arr
+          .filter(r => r && ["进展", "决策", "应对"].includes(r.type) && r.text)
+          .map(r => ({ type: r.type, text: String(r.text).slice(0, 140) }))
+          .slice(0, 6);
+      } catch (e) {
+        console.warn("当日简报生成失败：", e.message || e);
+        this.lastError = String(e.message || e);
+        this.cooldownUntil = Date.now() + ERROR_COOLDOWN_MS;
+        return null;
+      }
+    });
+  }
+
   /** 测试连接（管理后台用），返回 { ok, message } */
   async test() {
     if (!this.cfg.apiKey || !this.cfg.model) {

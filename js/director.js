@@ -14,6 +14,7 @@
 // 模型不可用时一切回退到画像中的内置台词池，模拟不会停。
 
 import { DAILY_SCHEDULE } from "./personas.js";
+import { buildItems, composeAgentSummary } from "./board.js";
 
 const MINUTES_PER_SECOND = 2.2;   // 1 秒现实时间 = 2.2 分钟模拟时间（1x 速度）
 const DAY_START = 9 * 60;          // 09:00
@@ -42,13 +43,17 @@ export class Director {
    * @param {World|null} world 可选的世界模型
    * @param {Feed|null} feed 可选的真实数据源
    */
-  constructor(agents, office, log, llm = null, world = null, feed = null) {
+  constructor(agents, office, log, llm = null, world = null, feed = null, board = null) {
     this.agents = agents;
     this.office = office;
     this.log = log;
     this.llm = llm;
     this.world = world;
     this.feed = feed;
+    this.board = board;
+
+    this.todayRecord = freshRecord();   // 当日事实累积（给看板）
+    this.todayHighlights = [];          // 当日会议/协作发言摘录（给看板 AI）
 
     this.day = world?.day ?? 1;
     this.clockMin = DAY_START;
@@ -128,6 +133,7 @@ export class Director {
     }
     const summary = this.world.metricsSummary();
     this.log(`📊 ${summary}`);
+    for (const ev of this.world.todayEvents) this.todayRecord.market.push(ev.text);
     for (const a of this.agents) {
       this.remember(a, `公司公告：${summary}`, 5, "world");
       for (const ev of this.world.todayEvents) {
@@ -142,6 +148,7 @@ export class Director {
     if (!text) return;
     this.log(`📡 突发：${text}`, "log-meeting");
     if (this.world) this.world.todayEvents.push({ id: ev.id, text, real: true });
+    this.todayRecord.breaking.push(text);
     for (const a of this.agents) {
       this.remember(a, `市场快讯：${text}`, 7, "world");
     }
@@ -151,6 +158,7 @@ export class Director {
   announcePolicyChange({ announced = [], revoked = [] }) {
     for (const p of announced) {
       this.log(`📣 管理层决策：${p.text}`, "log-meeting");
+      this.todayRecord.policies.push(p.text);
       for (const a of this.agents) {
         this.remember(a, `管理层决策：${p.text}`, 9, "world");
       }
@@ -174,6 +182,11 @@ export class Director {
       agent.say(text, isAI ? 5 : 4);
       this.log(`${isAI ? "✨ " : ""}${agent.persona.name}：${text}`, logCls);
       this.broadcastHearing(agent, text, radius, importance);
+      // 会议/协作的发言留作当日简报素材
+      if (logCls === "log-meeting" || logCls === "log-collab") {
+        this.todayHighlights.push(`${agent.persona.name}：${text}`);
+        if (this.todayHighlights.length > 40) this.todayHighlights.shift();
+      }
       onDone?.(text, isAI);
     };
 
@@ -207,6 +220,7 @@ export class Director {
 
     // 一天结束，开始新的一天
     if (this.clockMin >= DAY_END) {
+      this.runDailyDigest(this.day);   // 先沉淀今天的看板，再翻篇
       this.world?.nextDay(this.feed?.takeEvents(3) ?? []);
       this.day = this.world?.day ?? this.day + 1;
       this.clockMin = DAY_START;
@@ -216,6 +230,8 @@ export class Director {
       this.meetState = { rd: freshMeet(), ops: freshMeet() };
       this.workSeat.clear();
       this.reflected = false;
+      this.todayRecord = freshRecord();
+      this.todayHighlights = [];
       this.log(`☀️ 第 ${this.day} 天开始了`, "log-meeting");
       this.broadcastDaily();
     }
@@ -424,11 +440,14 @@ export class Director {
         visitor.sitAt({ ...ownDesk.seat, lookAt: ownDesk.lookAt }, "type");
         host.faceToward(desk.lookAt.x, desk.lookAt.z);
       }
-      if (this.world?.onCollabDone()) {
+      const bugFixed = !!this.world?.onCollabDone();
+      if (bugFixed) {
         this.log(`🔧 ${visitor.persona.name} 和 ${host.persona.name} 的讨论修复了一个 Bug（剩 ${this.world.metrics.bugs} 个）`, "log-collab");
         this.remember(visitor, `和 ${host.persona.name} 一起修复了一个产品 Bug`, 5, "event");
         this.remember(host, `和 ${visitor.persona.name} 一起修复了一个产品 Bug`, 5, "event");
+        this.todayRecord.bugsFixed++;
       }
+      this.todayRecord.collabs.push({ visitor: visitor.persona.name, host: host.persona.name, bugFixed });
       this.collabBusy.delete(visitor.persona.id);
       this.collabBusy.delete(host.persona.id);
     });
@@ -478,6 +497,39 @@ export class Director {
     });
   }
 
+  // ---------- 每日看板简报 ----------
+
+  /** 每个模拟日结束：沉淀每人当日小结 + 团队进展/决策/应对条目，写入看板 */
+  runDailyDigest(day) {
+    if (!this.board) return;
+    const summaries = {};
+    for (const a of this.agents) {
+      if (!a.memory) continue;
+      const items = a.memory.items.filter(m => m.day === day);
+      if (items.length) summaries[a.persona.id] = composeAgentSummary(items);
+    }
+    const r = this.todayRecord;
+    const facts =
+      `市场动态：${[...r.breaking, ...r.market].join("；") || "无"}\n` +
+      `管理层决策：${r.policies.join("；") || "无"}\n` +
+      `今日修复 Bug：${r.bugsFixed} 个，协作 ${r.collabs.length} 次`;
+    const fallback = buildItems(r);
+
+    const commit = (items) => {
+      const list = items && items.length ? items : fallback;
+      this.board.recordDay(day, list, summaries);
+      if (list.length) this.log(`📑 第 ${day} 天小结：${list.length} 条进展/决策/应对已入看板`, "log-meeting");
+    };
+
+    if (this.llm?.available) {
+      this.llm.digestDay({ company: this.world?.companyBrief(), day, facts, highlights: this.todayHighlights })
+        .then(items => commit(items))
+        .catch(() => commit(null));
+    } else {
+      commit(null);
+    }
+  }
+
   // ---------- 每日反思 ----------
 
   runReflections() {
@@ -504,4 +556,8 @@ export class Director {
 
 function freshMeet() {
   return { idx: 0, next: 0, pending: false, transcript: [] };
+}
+
+function freshRecord() {
+  return { market: [], breaking: [], policies: [], collabs: [], bugsFixed: 0 };
 }
