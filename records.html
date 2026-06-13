@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#1a1d24" />
+  <title>记录中心 · 画像办公室</title>
+  <link rel="stylesheet" href="css/style.css" />
+  <link rel="stylesheet" href="css/records.css" />
+</head>
+<body>
+  <div id="rc-app">
+    <header id="rc-top">
+      <a id="rc-back" href="index.html">← 返回办公室</a>
+      <h1>📑 记录中心</h1>
+      <span id="rc-sidecar" class="rc-chip">📡 检测中…</span>
+    </header>
+    <div id="rc-body">
+      <nav id="rc-nav">
+        <div id="rc-cats">
+          <button class="rc-cat active" data-cat="board">📑 看板</button>
+          <button class="rc-cat" data-cat="minutes">📋 纪要</button>
+          <button class="rc-cat" data-cat="people">🧠 人物</button>
+          <button class="rc-cat" data-cat="activity">📡 动态</button>
+        </div>
+        <div id="rc-sublist"></div>
+      </nav>
+      <main id="rc-main"></main>
+    </div>
+  </div>
+  <script type="module" src="js/records.js"></script>
+</body>
+</html>
