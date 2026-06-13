@@ -248,7 +248,7 @@ export function buildOffice(scene) {
   mkGlass(3, 0.12, -11, -4.4);       // 南墙左段
   mkGlass(3, 0.12, -5, -4.4);        // 南墙右段（门洞 x[-9.5,-6.5] 留空）
   mkGlass(0.12, 3.6, -3.5, -6.2);    // 东墙
-  rd.meetingSeats = buildMeetingTable(scene, -8, -6.0, 3.4, 3);
+  rd.meetingSeats = buildMeetingTable(scene, -8, -6.0, 6.0, 5);   // 10 座，坐得下产研 9 人
 
   // 产研白板
   const wb = new THREE.Mesh(
@@ -335,7 +335,7 @@ export function buildOffice(scene) {
   grid.blockRect(-11, -4.4, 3, 0.2, 0.1);
   grid.blockRect(-5, -4.4, 3, 0.2, 0.1);
   grid.blockRect(-3.5, -6.2, 0.2, 3.6, 0.1);
-  grid.blockRect(-8, -6.0, 3.4, 1.4, 0.15);
+  grid.blockRect(-8, -6.0, 6.0, 1.4, 0.15);
   // 产研咖啡角
   grid.blockRect(-13.6, 5.1, 0.8, 2.2, 0.15);
   grid.blockRect(-15.5, 5.5, 0.9, 0.9, 0.1);
