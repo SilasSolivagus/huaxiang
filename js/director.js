@@ -465,8 +465,14 @@ export class Director {
       !this.collabBusy.has(a.persona.id) && !a.isBusy &&
       !a.persona.privateOffice && !a.persona.remote && this.workSeat.has(a));
     if (free.length < 2) return;
-    const visitor = pick(free);
-    const host = pick(free.filter(a => a !== visitor));
+    let visitor, host, planTopic = "";
+    const pair = findCollabPair(free, a => (a.plan?.day === this.day ? a.plan : null));
+    if (pair) {
+      visitor = pair.visitor; host = pair.host; planTopic = pair.topic || "";
+    } else {
+      visitor = pick(free);
+      host = pick(free.filter(a => a !== visitor));
+    }
     if (!host) return;
 
     const desk = this.workSeat.get(host);
@@ -488,7 +494,9 @@ export class Director {
       const term = DOMAIN_TERMS[Math.floor(Math.random() * DOMAIN_TERMS.length)];
       this.feed.repoGrep(term).then(hits => { codeNote = codeRefNote(hits); }).catch(() => {});
     }
-    const sceneBase = `工位旁的工作讨论：${visitor.persona.name} 走到 ${host.persona.name} 的工位。结合你记得的事情聊一个具体话题。`;
+    const sceneBase = `工位旁的工作讨论：${visitor.persona.name} 走到 ${host.persona.name} 的工位。` +
+      (planTopic ? `${visitor.persona.name}今天本就计划找人聊「${planTopic}」。` : "") +
+      `结合你记得的事情聊一个具体话题。`;
     const turn = (agent, fallbackPool) => {
       this.speakSmart(agent, sceneBase + codeNote, pick(fallbackPool), {
         radius: HEAR_RADIUS_TALK,
