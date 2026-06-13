@@ -52,7 +52,7 @@ export function composeAgentSummary(memItems = []) {
   if (collabs) parts.push(`协作/讨论 ${collabs} 次`);
   if (fixes) parts.push(`参与修复 ${fixes} 个 Bug`);
   let s = parts.length ? parts.join("，") : "日常工作，无特别记录";
-  if (reflect) s += `；感悟：${reflect.c.replace(/^今日反思：/, "")}`;
+  if (reflect) s += `；感悟：${reflect.c.replace(/^(今日反思|反思)：/, "")}`;
   return s;
 }
 

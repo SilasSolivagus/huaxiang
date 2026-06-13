@@ -750,7 +750,7 @@ function fmtDelta(n) {
 function lastReflection(agent) {
   const items = agent.memory?.items?.filter(m => m.type === "reflect") ?? [];
   const last = items[items.length - 1];
-  return last ? String(last.c).replace(/^今日反思：/, "") : "";
+  return last ? String(last.c).replace(/^(今日反思|反思)：/, "") : "";
 }
 
 export function codeRefNote(hits) {
