@@ -49,5 +49,39 @@ export function createRepoService(rootPath, deps = {}) {
     return { path: rel, text: truncated ? full.slice(0, maxBytes) : full, truncated, bytes: st.size };
   }
 
-  return { root, run, resolveInside, tree, readFile };
+  // 全文检索：ripgrep，返回 [{file,line,text}]，结果数封顶
+  async function grep(query, max = 40) {
+    const q = String(query || "").trim();
+    if (!q) return [];
+    let out;
+    try { out = await run("rg", ["-n", "--no-heading", "-S", "--", q, "."], root); }
+    catch (e) { if (e.code === 1) return []; throw e; }   // rg 退出码 1 = 无命中
+    return out.split("\n").filter(Boolean).slice(0, max).map(parseGrepLine).filter(Boolean);
+  }
+
+  // git 最近 n 条提交：hash / author / subject
+  async function log(n = 10) {
+    const count = Math.max(1, Math.min(50, Number(n) || 10));
+    let out;
+    try { out = await run("git", ["-C", root, "log", "-n", String(count), "--pretty=%h\x1f%an\x1f%s"], root); }
+    catch (e) { if (e.code === 128) return []; throw e; }   // 128 = 非 git 仓库
+    return out.split("\n").filter(Boolean).map(l => {
+      const [hash, author, subject] = l.split("\x1f");
+      return { hash, author, subject };
+    });
+  }
+
+  return { root, run, resolveInside, tree, readFile, grep, log };
+}
+
+function parseGrepLine(line) {
+  // 格式：file:line:text （text 内可能含冒号，只切前两个）
+  const first = line.indexOf(":");
+  const second = line.indexOf(":", first + 1);
+  if (first < 0 || second < 0) return null;
+  const file = line.slice(0, first);
+  const ln = Number(line.slice(first + 1, second));
+  const text = line.slice(second + 1);
+  if (!Number.isFinite(ln)) return null;
+  return { file, line: ln, text };
 }
