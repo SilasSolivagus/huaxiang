@@ -19,6 +19,7 @@ import { minutesEmpty, minutesToText } from "./cognition/minutes.js";
 import { newActionItem } from "./cognition/actionItems.js";
 import { findCollabPair, planSummaryText } from "./cognition/plan.js";
 import { shouldReflect, formatMemoriesWithIds } from "./cognition/reflect.js";
+import { cosineTopK, bigramTopK } from "./cognition/react.js";
 
 const MINUTES_PER_SECOND = 2.2;   // 1 秒现实时间 = 2.2 分钟模拟时间（1x 速度）
 const DAY_START = 9 * 60;          // 09:00
@@ -181,6 +182,57 @@ export class Director {
     this.todayRecord.breaking.push(text);
     for (const a of this.agents) {
       this.remember(a, `市场快讯：${text}`, 7, "world");
+    }
+    this.runReactions(text);
+  }
+
+  /** 突发事件：挑最相关的 2 人各做一次反应，其余人只有公告记忆。 */
+  runReactions(text) {
+    if (!this.llm?.enabled || this.llm.usage === "economy") return;
+    this.rankAgentsByRelevance(text).then(ranked => {
+      for (const a of ranked.slice(0, 2)) {
+        this.llm.react({ persona: a.persona, company: this.world?.companyBrief?.(), event: text })
+          .then(r => { if (r) this.applyReaction(a, r, text); })
+          .catch(() => {});
+      }
+    }).catch(() => {});
+  }
+
+  /** 按事件与各人画像的相关度排序（embedding 余弦优先，离线回退 bigram）。 */
+  async rankAgentsByRelevance(text) {
+    const personas = this.agents.map(a => `${a.persona.role}。${a.persona.personality || ""}`);
+    let vecs = null;
+    if (this.feed?.embed) {
+      try { vecs = await this.feed.embed([text, ...personas]); } catch { vecs = null; }
+    }
+    const order = (Array.isArray(vecs) && vecs.length === personas.length + 1)
+      ? cosineTopK(vecs[0], vecs.slice(1), this.agents.length)
+      : bigramTopK(text, personas, this.agents.length);
+    return order.map(i => this.agents[i]);
+  }
+
+  /** 应用一个轻动作（不移动 3D 身体）：说话+广播+记忆，按 action 产生跨人/查代码效果。 */
+  applyReaction(a, r, text) {
+    const u = r.utterance;
+    if (u) {
+      a.say?.(u, 5);
+      this.log(`⚡ ${a.persona.name}（对突发反应）：${u}`, "log-collab");
+      this.broadcastHearing(a, u, HEAR_RADIUS_TALK, 5);
+    }
+    this.remember(a, `我对突发「${text.slice(0, 18)}…」的反应：${u || r.action}`, 6, "event");
+    if (r.action === "investigate_repo" && this.feed?.repoGrep) {
+      const term = DOMAIN_TERMS[Math.floor(Math.random() * DOMAIN_TERMS.length)];
+      this.feed.repoGrep(term).then(hits => {
+        const note = codeRefNote(hits);
+        if (note) this.remember(a, `因突发去查了代码${note}`, 5, "event");
+      }).catch(() => {});
+    } else if (r.action === "call_meeting") {
+      this.log(`📣 ${a.persona.name} 提议就这事碰个短会`, "log-meeting");
+      for (const o of this.crewInZone(a.persona.zone || "rd")) {
+        if (o !== a) this.remember(o, `${a.persona.name} 提议就「${text.slice(0, 16)}」碰个短会`, 5, "heard");
+      }
+    } else if (r.action === "goto_colleague") {
+      this.log(`🤝 ${a.persona.name} 想找人对一下这事`, "log-collab");
     }
   }
 
