@@ -1,10 +1,12 @@
 {
   "port": 7878,
-  "company": "123云盘，个人网盘/云存储创业公司，主打大容量与上传下载不限速，正经历免费额度收紧与会员涨价的阵痛期，竞品是百度网盘、夸克、阿里云盘",
+  "company": "123云盘（123pan），个人云存储创业公司，主打大容量与上传下载不限速，竞品有百度网盘、夸克、阿里云盘等",
   "feeds": [
     "https://www.ithome.com/rss/",
     "https://36kr.com/feed"
   ],
   "relevanceThreshold": 6,
-  "rssIntervalMinutes": 30
+  "rssIntervalMinutes": 30,
+  "repoPath": "",
+  "repoDigestMaxCommits": 10
 }

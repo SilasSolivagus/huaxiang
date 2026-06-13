@@ -16,7 +16,10 @@ const SIDECAR_ROOT = join(__dirname, "..");
 const FRONTEND_ROOT = join(SIDECAR_ROOT, "..");
 
 export function loadConfig() {
-  const defaults = { port: 7878, company: "", feeds: [], relevanceThreshold: 6, rssIntervalMinutes: 30 };
+  const defaults = {
+    port: 7878, company: "", feeds: [], relevanceThreshold: 6, rssIntervalMinutes: 30,
+    repoPath: "", repoDigestMaxCommits: 10
+  };
   const path = join(SIDECAR_ROOT, "config.json");
   if (!existsSync(path)) return defaults;
   try {
