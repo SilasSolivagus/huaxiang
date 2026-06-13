@@ -12,6 +12,7 @@ import { Agent } from "./agent.js";
 import { Director } from "./director.js";
 import { Feed } from "./feed.js";
 import { Board } from "./board.js";
+import { ActionItemStore } from "./cognition/actionItems.js";
 import { addActivity } from "./activityLog.js";
 
 // 从管理后台保存的配置加载人物画像、模型设置与公司设定
@@ -135,7 +136,8 @@ function log(msg, cls = "") {
 log(`☀️ 第 ${world.day} 天开始了，团队陆续到岗`, "log-meeting");
 const feed = new Feed();
 const board = new Board();
-director = new Director(agents, office, log, llm, world, feed, board);
+const actionItems = new ActionItemStore();
+director = new Director(agents, office, log, llm, world, feed, board, actionItems);
 board.onUpdate = () => renderBoard();
 
 // 给每个 Agent 的记忆流接上 sidecar 本地 embedding（离线自动回退 bigram）
