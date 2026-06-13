@@ -1,10 +1,16 @@
-// 导演模块：驱动模拟时钟与日程，指挥所有 Agent 工作、开会、协作、休息。
+// 导演模块：驱动模拟时钟与日程，指挥两个办公地点（产研区 rd / 运营区 ops）的 Agent
+// 工作、开会、协作、休息。
+//
+// 两地点设计：
+//  - 每个 Agent 有 persona.zone（rd / ops），各自在本区工位、本区会议室、本区咖啡角活动
+//  - CTO（privateOffice）工作时在独立办公室，参加产研区会议
+//  - CEO（remote）常驻运营区；约每月一次，CTO 跨区去运营区与 CEO 当面同步
 //
 // Agent 隔离设计（参照斯坦福 Generative Agents）：
-//  - 每句 AI 发言都是"轮到的那个人"用自己的画像 + 自己的记忆 + 自己听到的话单独生成的（✨ 标记）
+//  - 每句 AI 发言都是"轮到的那个人"用自己的画像 + 自己的记忆 + 自己听到的话单独生成的（✨）
 //  - 别人说的话只有在听力范围内才会写入某个 Agent 的记忆
 //  - 每天下班前每人生成一条反思（🪞），作为高权重记忆影响第二天
-//  - 世界模型（公司/产品/市场）的公告会进入所有人记忆，员工协作也会反过来影响产品指标
+//  - 世界模型（公司/产品/市场）公告进入所有人记忆，员工协作也会反过来影响产品指标
 // 模型不可用时一切回退到画像中的内置台词池，模拟不会停。
 
 import { DAILY_SCHEDULE } from "./personas.js";
@@ -15,6 +21,8 @@ const DAY_END = 18.5 * 60;         // 18:30 下班
 
 const HEAR_RADIUS_MEETING = 8;     // 会议室里大家都听得到
 const HEAR_RADIUS_TALK = 4.5;      // 工位/咖啡角交谈的听力范围
+
+const ZONES = ["rd", "ops"];
 
 function parseTime(str) {
   const [h, m] = str.split(":").map(Number);
@@ -28,10 +36,11 @@ function pick(arr) {
 export class Director {
   /**
    * @param {Agent[]} agents
-   * @param {object} office buildOffice 的返回值
+   * @param {object} office buildOffice 的返回值 { grid, rd, ops, ctoOffice, ceoHome }
    * @param {(msg: string, cls?: string) => void} log 事件日志回调
    * @param {LLMClient|null} llm 可选的模型客户端
    * @param {World|null} world 可选的世界模型
+   * @param {Feed|null} feed 可选的真实数据源
    */
   constructor(agents, office, log, llm = null, world = null, feed = null) {
     this.agents = agents;
@@ -46,14 +55,13 @@ export class Director {
     this.simTime = 0;
     this.tasks = [];
     this.currentPhase = null;
-    this.meetingSpeakerIdx = 0;
-    this.nextMeetingTalk = 0;
-    this.speechPending = false;
-    this.meetingTranscript = [];
+    this.meetState = { rd: freshMeet(), ops: freshMeet() };
+    this.workSeat = new Map();      // agent -> { seat, lookAt, standSpot } 本工作阶段的座位
     this.nextCollab = 0;
     this.chatterTimers = agents.map(() => 2 + Math.random() * 8);
     this.collabBusy = new Set();
     this.reflected = false;
+    this.ctoVisitDay = -1;          // 上次触发 CTO→CEO 月度同步的天
 
     this._schedule = DAILY_SCHEDULE.map(s => ({ ...s, min: parseTime(s.time) }))
       .sort((a, b) => a.min - b.min);
@@ -81,6 +89,11 @@ export class Director {
 
   findAgent(name) {
     return this.agents.find(a => a.persona.name === name);
+  }
+
+  /** 某个办公区的全体成员 */
+  crewInZone(zone) {
+    return this.agents.filter(a => (a.persona.zone || "rd") === zone);
   }
 
   // ---------- 记忆写入工具 ----------
@@ -154,9 +167,9 @@ export class Director {
 
   /**
    * 让 agent 以自己的视角说一句话：AI 可用时单独生成，否则用 fallback。
-   * @returns 通过 onDone(text, isAI) 回调
+   * transcript 是这场对话/会议已经说过的话（用于上下文），各区/各场独立。
    */
-  speakSmart(agent, scene, fallback, { radius = HEAR_RADIUS_TALK, importance = 3, logCls = "", onDone = null } = {}) {
+  speakSmart(agent, scene, fallback, { radius = HEAR_RADIUS_TALK, importance = 3, logCls = "", transcript = [], onDone = null } = {}) {
     const finish = (text, isAI) => {
       agent.say(text, isAI ? 5 : 4);
       this.log(`${isAI ? "✨ " : ""}${agent.persona.name}：${text}`, logCls);
@@ -165,14 +178,13 @@ export class Director {
     };
 
     if (this.llm?.available && agent.memory) {
-      const transcript = this.meetingTranscript.slice(-6);
       this.llm.speak({
         persona: agent.persona,
         company: this.world?.companyBrief(),
         policies: this.feed?.activePolicies() ?? [],
         memories: agent.memory.retrieve(scene, 6),
         scene,
-        transcript
+        transcript: transcript.slice(-6)
       }).then(text => {
         finish(text || fallback, !!text);
       });
@@ -201,8 +213,8 @@ export class Director {
       this.currentPhase = null;
       this.tasks = [];
       this.collabBusy.clear();
-      this.meetingTranscript = [];
-      this.speechPending = false;
+      this.meetState = { rd: freshMeet(), ops: freshMeet() };
+      this.workSeat.clear();
       this.reflected = false;
       this.log(`☀️ 第 ${this.day} 天开始了`, "log-meeting");
       this.broadcastDaily();
@@ -236,72 +248,101 @@ export class Director {
     }
   }
 
-  // ---------- 阶段切换 ----------
+  // ---------- 阶段切换（按区放置）----------
 
   applyPhase(phase) {
     this.currentPhase = phase;
     this.collabBusy.clear();
-    this.meetingTranscript = [];
-    this.speechPending = false;
-    const { desks, meetingSeats, coffeeSpots } = this.office;
+    this.meetState = { rd: freshMeet(), ops: freshMeet() };
+    this.workSeat.clear();
 
     if (phase.type === "work") {
-      this.log(`💼 ${phase.time} ${phase.label}，大家回到工位`);
-      this.agents.forEach((a, i) => {
-        const desk = desks[i % desks.length];
-        a.setActivity("在工位专注工作");
-        this.after(Math.random() * 2, () => a.sitAt({ ...desk.seat, lookAt: desk.lookAt }, "type"));
-      });
+      this.log(`💼 ${phase.time} ${phase.label}，各自回到工位`);
+      for (const zone of ZONES) {
+        const z = this.office[zone];
+        let di = 0;
+        for (const a of this.crewInZone(zone)) {
+          let ws;
+          if (a.persona.privateOffice) ws = this.office.ctoOffice;
+          else if (a.persona.remote) ws = this.office.ceoHome;
+          else ws = z.desks[di++ % z.desks.length];
+          this.workSeat.set(a, ws);
+          a.setActivity(a.persona.privateOffice ? "在独立办公室工作" : "在工位专注工作");
+          this.after(Math.random() * 2, () => a.sitAt({ ...ws.seat, lookAt: ws.lookAt }, "type"));
+        }
+      }
       this.nextCollab = this.simTime + 8 + Math.random() * 10;
+      // 月度 CTO→CEO 跨区同步：每 30 天，下午开工时触发一次
+      if (this.day % 30 === 0 && this.ctoVisitDay !== this.day && phase.time === "13:00") {
+        this.ctoVisitDay = this.day;
+        this.after(6 + Math.random() * 4, () => this.startCtoCeoSync());
+      }
     } else if (phase.type === "standup" || phase.type === "review") {
-      this.log(`📋 ${phase.time} ${phase.label}开始，全员前往会议室`, "log-meeting");
-      this.agents.forEach((a, i) => {
-        const seat = meetingSeats[i % meetingSeats.length];
-        a.setActivity(`参加${phase.label}`);
-        this.remember(a, `参加了${phase.label}`, 3, "event");
-        this.after(Math.random() * 2.5, () => a.sitAt(seat, "sit"));
-      });
-      this.meetingSpeakerIdx = Math.floor(Math.random() * this.agents.length);
-      this.nextMeetingTalk = this.simTime + 6;
+      this.log(`📋 ${phase.time} ${phase.label}开始，两个区各自进会议室`, "log-meeting");
+      for (const zone of ZONES) {
+        const seats = this.office[zone].meetingSeats;
+        const crew = this.crewInZone(zone);
+        crew.forEach((a, i) => {
+          const seat = seats[i % seats.length];
+          a.setActivity(`参加${phase.label}`);
+          this.remember(a, `参加了${phase.label}`, 3, "event");
+          this.after(Math.random() * 2.5, () => a.sitAt(seat, "sit"));
+        });
+        this.meetState[zone].idx = Math.floor(Math.random() * Math.max(1, crew.length));
+        this.meetState[zone].next = this.simTime + 6;
+      }
     } else if (phase.type === "lunch" || phase.type === "social") {
       const verb = phase.type === "lunch" ? "吃午饭" : "喝咖啡放松";
-      this.log(`☕ ${phase.time} ${phase.label}，大家去咖啡角${verb}`);
-      this.agents.forEach((a, i) => {
-        const spot = coffeeSpots[i % coffeeSpots.length];
-        a.setActivity(phase.type === "lunch" ? "在咖啡角吃午饭" : "在咖啡角闲聊");
-        this.after(Math.random() * 3, () => a.standAt(spot, "talk"));
-      });
+      this.log(`☕ ${phase.time} ${phase.label}，各区去咖啡角${verb}`);
+      for (const zone of ZONES) {
+        const spots = this.office[zone].coffeeSpots;
+        this.crewInZone(zone).forEach((a, i) => {
+          const spot = spots[i % spots.length];
+          a.setActivity(phase.type === "lunch" ? "在咖啡角吃午饭" : "在咖啡角闲聊");
+          this.after(Math.random() * 3, () => a.standAt(spot, "talk"));
+        });
+      }
     }
   }
 
-  // ---------- 会议：逐人独立发言 ----------
+  // ---------- 会议：两个区各自逐人独立发言 ----------
 
-  meetingScene(phase) {
+  meetingScene(phase, zone) {
+    if (zone === "ops") {
+      const goal = phase.type === "standup"
+        ? "运营团队每日站会，同步运营数据、客服反馈和 B 端进展"
+        : "运营团队评审会，复盘活动效果、用户口碑和商业化进展";
+      return `${goal}。今天是第 ${this.day} 个工作日。`;
+    }
     const goal = phase.type === "standup"
-      ? "每日站会，每人同步自己的进展、计划和遇到的问题"
-      : "项目评审会，讨论产品现状、市场动态、风险和下一步计划";
+      ? "产研团队每日站会，每人同步进展、技术/产品计划和遇到的问题"
+      : "产研团队项目评审会，讨论产品现状、市场动态、技术风险和下一步计划";
     return `${goal}。今天是第 ${this.day} 个工作日。`;
   }
 
   runMeetingTalk() {
-    if (this.simTime < this.nextMeetingTalk || this.speechPending) return;
-    const phase = this.currentPhase;
-    const speaker = this.agents[this.meetingSpeakerIdx % this.agents.length];
-    this.meetingSpeakerIdx++;
-    this.nextMeetingTalk = this.simTime + 5.5 + Math.random() * 3;
-    if (speaker.isBusy) return;   // 还在走路就跳过这轮
-
-    this.speechPending = true;
-    const fallback = pick(speaker.persona.lines.meeting);
-    this.speakSmart(speaker, this.meetingScene(phase), fallback, {
-      radius: HEAR_RADIUS_MEETING,
-      importance: 4,
-      logCls: "log-meeting",
-      onDone: (text) => {
-        this.meetingTranscript.push(`${speaker.persona.name}：${text}`);
-        this.speechPending = false;
-      }
-    });
+    for (const zone of ZONES) {
+      const st = this.meetState[zone];
+      if (this.simTime < st.next || st.pending) continue;
+      const crew = this.crewInZone(zone);
+      if (crew.length === 0) continue;
+      const speaker = crew[st.idx % crew.length];
+      st.idx++;
+      st.next = this.simTime + 5.5 + Math.random() * 3;
+      if (speaker.isBusy) continue;
+      st.pending = true;
+      const fallback = pick(speaker.persona.lines.meeting);
+      this.speakSmart(speaker, this.meetingScene(this.currentPhase, zone), fallback, {
+        radius: HEAR_RADIUS_MEETING,
+        importance: 4,
+        logCls: "log-meeting",
+        transcript: st.transcript,
+        onDone: (text) => {
+          st.transcript.push(`${speaker.persona.name}：${text}`);
+          st.pending = false;
+        }
+      });
+    }
   }
 
   // ---------- 工位自言自语 / 咖啡角闲聊 ----------
@@ -314,29 +355,37 @@ export class Director {
         if (!a.isBusy && !this.collabBusy.has(a.persona.id)) {
           const line = pick(a.persona.lines[pool]);
           a.say(line, 4);
-          // 闲聊也会被旁边的人听到（低重要度）
           this.broadcastHearing(a, line, 3.5, 2);
+          // 运营经理离谱偶尔甩锅，话传到产研团队耳朵里
+          if (a.persona.id === "lipu" && pool === "work" && Math.random() < 0.4) {
+            for (const r of this.crewInZone("rd")) {
+              if (r.persona.id !== "he") {
+                this.remember(r, `听说运营的离谱又在甩锅，说产研没配合好`, 4, "heard");
+              }
+            }
+          }
         }
       }
     });
   }
 
-  // ---------- 随机协作：两人轮流、各自视角 ----------
+  // ---------- 随机协作：同区两人轮流、各自视角 ----------
 
   maybeStartCollab() {
     if (this.simTime < this.nextCollab) return;
     this.nextCollab = this.simTime + 22 + Math.random() * 25;
 
-    const free = this.agents.filter(a => !this.collabBusy.has(a.persona.id) && !a.isBusy);
+    const zone = Math.random() < 0.7 ? "rd" : "ops";   // 产研区动作更多
+    const free = this.crewInZone(zone).filter(a =>
+      !this.collabBusy.has(a.persona.id) && !a.isBusy &&
+      !a.persona.privateOffice && !a.persona.remote && this.workSeat.has(a));
     if (free.length < 2) return;
     const visitor = pick(free);
     const host = pick(free.filter(a => a !== visitor));
     if (!host) return;
 
-    const hostIdx = this.agents.indexOf(host);
-    const desk = this.office.desks[hostIdx % this.office.desks.length];
-    const visitorIdx = this.agents.indexOf(visitor);
-    const ownDesk = this.office.desks[visitorIdx % this.office.desks.length];
+    const desk = this.workSeat.get(host);
+    const ownDesk = this.workSeat.get(visitor);
 
     this.collabBusy.add(visitor.persona.id);
     this.collabBusy.add(host.persona.id);
@@ -348,13 +397,15 @@ export class Director {
 
     visitor.standAt({ ...desk.standSpot, lookAt: desk.seat }, "talk");
 
+    const tx = [];   // 本次协作的对话上下文
     const scene = `工位旁的工作讨论：${visitor.persona.name} 走到 ${host.persona.name} 的工位。结合你记得的事情聊一个具体话题。`;
     const turn = (agent, fallbackPool) => {
       this.speakSmart(agent, scene, pick(fallbackPool), {
         radius: HEAR_RADIUS_TALK,
         importance: 4,
         logCls: "log-collab",
-        onDone: (text) => this.meetingTranscript.push(`${agent.persona.name}：${text}`)
+        transcript: tx,
+        onDone: (text) => tx.push(`${agent.persona.name}：${text}`)
       });
     };
 
@@ -362,7 +413,6 @@ export class Director {
       host.faceToward(desk.standSpot.x, desk.standSpot.z);
       host.setActivity(`和 ${visitor.persona.name} 讨论中`);
       visitor.setActivity(`和 ${host.persona.name} 讨论中`);
-      this.meetingTranscript = [];   // 本次协作的对话上下文
       turn(visitor, visitor.persona.lines.collab);
     });
     this.after(10, () => turn(host, host.persona.lines.collab));
@@ -374,7 +424,6 @@ export class Director {
         visitor.sitAt({ ...ownDesk.seat, lookAt: ownDesk.lookAt }, "type");
         host.faceToward(desk.lookAt.x, desk.lookAt.z);
       }
-      // 协作有概率修掉产品 bug，世界状态被员工的行为改变
       if (this.world?.onCollabDone()) {
         this.log(`🔧 ${visitor.persona.name} 和 ${host.persona.name} 的讨论修复了一个 Bug（剩 ${this.world.metrics.bugs} 个）`, "log-collab");
         this.remember(visitor, `和 ${host.persona.name} 一起修复了一个产品 Bug`, 5, "event");
@@ -382,6 +431,50 @@ export class Director {
       }
       this.collabBusy.delete(visitor.persona.id);
       this.collabBusy.delete(host.persona.id);
+    });
+  }
+
+  // ---------- 月度：CTO 跨区去运营找 CEO 同步 ----------
+
+  startCtoCeoSync() {
+    const cto = this.agents.find(a => a.persona.privateOffice);
+    const ceo = this.agents.find(a => a.persona.remote);
+    if (!cto || !ceo) return;
+    if (this.collabBusy.has(cto.persona.id) || this.collabBusy.has(ceo.persona.id)) return;
+    if (this.currentPhase?.type !== "work") return;
+
+    this.collabBusy.add(cto.persona.id);
+    this.collabBusy.add(ceo.persona.id);
+    const home = this.office.ceoHome;
+
+    this.log(`🤝 ${cto.persona.name} 跨区去运营找 ${ceo.persona.name} 做月度同步`, "log-collab");
+    this.remember(cto, `我去运营那边找 ${ceo.persona.name} 做月度同步`, 5, "event");
+    this.remember(ceo, `${cto.persona.name} 过来跟我同步产研进展和重大决策`, 5, "event");
+    cto.setActivity(`去运营找 ${ceo.persona.name} 同步`);
+    cto.standAt({ ...home.standSpot, lookAt: home.seat }, "talk");
+
+    const tx = [];
+    const scene = `月度当面同步：${cto.persona.name}（CTO）来到运营这边，和 ${ceo.persona.name}（CEO）对一次产研进展、风险和重大决策。`;
+    const turn = (agent, pool) => this.speakSmart(agent, scene, pick(pool), {
+      radius: HEAR_RADIUS_TALK, importance: 5, logCls: "log-collab",
+      transcript: tx, onDone: (t) => tx.push(`${agent.persona.name}：${t}`)
+    });
+
+    this.after(7, () => {
+      ceo.faceToward(home.standSpot.x, home.standSpot.z);
+      ceo.setActivity(`和 ${cto.persona.name} 同步`);
+      cto.setActivity(`和 ${ceo.persona.name} 同步`);
+      turn(ceo, ceo.persona.lines.meeting);
+    });
+    this.after(13, () => turn(cto, cto.persona.lines.meeting));
+    this.after(19, () => turn(ceo, ["产研那边你盯着，我放心", "就按你说的来", "行，这事定了", "辛苦你跑一趟"]));
+    this.after(25, () => {
+      const office = this.office.ctoOffice;
+      cto.setActivity("回独立办公室工作");
+      cto.sitAt({ ...office.seat, lookAt: office.lookAt }, "type");
+      ceo.faceToward(home.lookAt.x, home.lookAt.z);
+      this.collabBusy.delete(cto.persona.id);
+      this.collabBusy.delete(ceo.persona.id);
     });
   }
 
@@ -407,4 +500,8 @@ export class Director {
       });
     }
   }
+}
+
+function freshMeet() {
+  return { idx: 0, next: 0, pending: false, transcript: [] };
 }

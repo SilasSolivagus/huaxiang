@@ -5,17 +5,21 @@ import { Director } from "./js/director.js";
 
 const scene = new THREE.Scene();
 const office = buildOffice(scene);
-console.log("office built: desks=%d meetingSeats=%d coffeeSpots=%d",
-  office.desks.length, office.meetingSeats.length, office.coffeeSpots.length);
+console.log("rd: desks=%d meetingSeats=%d coffee=%d | ops: desks=%d meetingSeats=%d coffee=%d",
+  office.rd.desks.length, office.rd.meetingSeats.length, office.rd.coffeeSpots.length,
+  office.ops.desks.length, office.ops.meetingSeats.length, office.ops.coffeeSpots.length);
 
-// ---- 寻路测试：所有关键点位两两可达 ----
+// ---- 寻路测试：所有关键点位两两可达（含跨区）----
 const pts = [
-  ...office.desks.map(d => d.seat),
-  ...office.desks.map(d => d.standSpot),
-  ...office.meetingSeats,
-  ...office.coffeeSpots,
-  ...office.wanderSpots,
-  { x: 0, z: 6.4 } // 出生点
+  ...office.rd.desks.map(d => d.seat),
+  ...office.rd.meetingSeats,
+  ...office.rd.coffeeSpots,
+  ...office.ops.desks.map(d => d.seat),
+  ...office.ops.meetingSeats,
+  ...office.ops.coffeeSpots,
+  office.ctoOffice.seat,
+  office.ceoHome.seat,
+  { x: 0.7, z: 0.5 }   // 跨区门洞附近
 ];
 let fail = 0, total = 0;
 for (let i = 0; i < pts.length; i++) {
@@ -30,6 +34,7 @@ for (let i = 0; i < pts.length; i++) {
   }
 }
 console.log(`pathfinding: ${total - fail}/${total} pairs reachable`);
+if (fail > 0) throw new Error("pathfinding has unreachable pairs");
 
 // ---- 导演调度测试：用桩 Agent 跑完 3 个模拟日 ----
 class StubAgent {
@@ -55,9 +60,16 @@ const director = new Director(agents, office, (m, c) => logs.push(m));
 for (let t = 0; t < 259 * 3; t += 0.1) director.update(0.1);
 console.log("simulated 3 days, day counter =", director.day);
 console.log("log entries:", logs.length);
-console.log("sample logs:", logs.slice(0, 6).join(" | "));
-const a0 = agents[0];
-console.log("agent0 calls:", JSON.stringify(a0.calls));
+console.log("agent0 calls:", JSON.stringify(agents[0].calls));
+
+// 分区核对
+const rdCount = PERSONAS.filter(p => (p.zone || "rd") === "rd").length;
+const opsCount = PERSONAS.filter(p => p.zone === "ops").length;
+console.log("roster: rd=%d ops=%d total=%d", rdCount, opsCount, PERSONAS.length);
+if (rdCount + opsCount !== PERSONAS.length) throw new Error("zone split mismatch");
+if (!PERSONAS.some(p => p.privateOffice)) throw new Error("missing CTO privateOffice");
+if (!PERSONAS.some(p => p.remote)) throw new Error("missing CEO remote");
+
 const phases = new Set();
 for (const s of DAILY_SCHEDULE) phases.add(s.type);
 console.log("schedule phases:", [...phases].join(","));

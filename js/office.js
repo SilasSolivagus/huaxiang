@@ -1,10 +1,11 @@
-// 搭建 3D 办公室场景，并返回各功能点位（工位、会议室座位、咖啡角等）与寻路网格。
+// 搭建 3D 办公室场景：两个办公地点——左侧产研区、右侧运营区，中间玻璃隔断带门洞。
+// 返回各区的功能点位（工位、会议座位、咖啡角、闲逛点）、CTO 独立办公室、CEO 工位与寻路网格。
 
 import * as THREE from "three";
 import { NavGrid } from "./pathfinding.js";
 
-const W = 23;   // 办公室宽（x 方向）
-const D = 15;   // 办公室深（z 方向）
+const W = 38;   // 办公室宽（x 方向）
+const D = 16;   // 办公室深（z 方向）
 
 function box(w, h, d, color, opts = {}) {
   const mesh = new THREE.Mesh(
@@ -36,7 +37,6 @@ function makeDesk(scene, x, z) {
     leg.position.set(dx, 0.36, dz);
     g.add(leg);
   }
-  // 显示器
   const screen = box(0.62, 0.4, 0.04, 0x222831);
   screen.position.set(0, 1.12, -0.22);
   g.add(screen);
@@ -49,7 +49,6 @@ function makeDesk(scene, x, z) {
   const stand = box(0.07, 0.28, 0.07, 0x333a45);
   stand.position.set(0, 0.9, -0.24);
   g.add(stand);
-  // 键盘
   const kb = box(0.45, 0.025, 0.16, 0x3a4250);
   kb.position.set(0, 0.78, 0.1);
   g.add(kb);
@@ -100,8 +99,69 @@ function makePlant(scene, x, z, scale = 1) {
   return g;
 }
 
-export function buildOffice(scene, personaCount = 6) {
-  const count = Math.max(1, Math.min(9, personaCount));
+// 一张工位 → 返回坐下点位、朝向点、协作站位
+function buildWorkstation(scene, x, z) {
+  makeDesk(scene, x, z);
+  makeChair(scene, x, z + 0.85, Math.PI);
+  return {
+    seat: { x, z: z + 0.85 },
+    lookAt: { x, z },
+    standSpot: { x: x + 1.35, z: z + 0.9 }
+  };
+}
+
+// 一张会议桌 + 两侧座位 → 返回座位点位数组
+function buildMeetingTable(scene, cx, cz, tableW, perSide, tableColor = 0x9b7653) {
+  const mTable = box(tableW, 0.1, 1.4, tableColor);
+  mTable.position.set(cx, 0.72, cz);
+  scene.add(mTable);
+  const halfLegX = tableW / 2 - 0.2;
+  for (const [dx, dz] of [[-halfLegX, -0.5], [halfLegX, -0.5], [-halfLegX, 0.5], [halfLegX, 0.5]]) {
+    const leg = box(0.08, 0.72, 0.08, 0x6e543c);
+    leg.position.set(cx + dx, 0.36, cz + dz);
+    scene.add(leg);
+  }
+  const seats = [];
+  const span = tableW - 1.2;
+  const step = perSide > 1 ? span / (perSide - 1) : 0;
+  const startX = cx - span / 2;
+  for (let i = 0; i < perSide; i++) {
+    const sx = startX + step * i;
+    makeChair(scene, sx, cz - 1.2, 0, 0x806044);
+    seats.push({ x: sx, z: cz - 1.2, lookAt: { x: sx, z: cz } });
+    makeChair(scene, sx, cz + 1.2, Math.PI, 0x806044);
+    seats.push({ x: sx, z: cz + 1.2, lookAt: { x: sx, z: cz } });
+  }
+  return seats;
+}
+
+// 咖啡角：吧台 + 圆桌 + 高脚凳 → 返回站位数组
+function buildCoffeeCorner(scene, cx, cz) {
+  const counter = box(0.8, 0.9, 2.2, 0x7a5d43);
+  counter.position.set(cx + 1.9, 0.45, cz - 0.4);
+  scene.add(counter);
+  const machine = box(0.42, 0.5, 0.42, 0x37404d);
+  machine.position.set(cx + 1.9, 1.15, cz - 0.9);
+  scene.add(machine);
+  const roundTop = cylinder(0.55, 0.55, 0.06, 0xc8a275, 24);
+  roundTop.position.set(cx, 0.95, cz);
+  scene.add(roundTop);
+  const roundLeg = cylinder(0.06, 0.1, 0.95, 0x6e543c);
+  roundLeg.position.set(cx, 0.47, cz);
+  scene.add(roundLeg);
+  const spots = [];
+  for (const a of [0.4, 1.9, 3.5, 5.0]) {
+    const sx = cx + Math.cos(a) * 1.05;
+    const sz = cz + Math.sin(a) * 1.05;
+    const stool = cylinder(0.2, 0.16, 0.55, 0xb55b41);
+    stool.position.set(sx, 0.27, sz);
+    scene.add(stool);
+    spots.push({ x: sx, z: sz, lookAt: { x: cx, z: cz } });
+  }
+  return spots;
+}
+
+export function buildOffice(scene) {
   // ---------- 地板 ----------
   const floor = new THREE.Mesh(
     new THREE.BoxGeometry(W, 0.2, D),
@@ -111,38 +171,36 @@ export function buildOffice(scene, personaCount = 6) {
   floor.receiveShadow = true;
   scene.add(floor);
 
-  // 工作区地毯
-  const rug = new THREE.Mesh(
-    new THREE.BoxGeometry(10.4, 0.04, 9),
+  // 产研区地毯（左）
+  const rugRd = new THREE.Mesh(
+    new THREE.BoxGeometry(15, 0.04, 8),
     new THREE.MeshStandardMaterial({ color: 0x7f9bb3, roughness: 1 })
   );
-  rug.position.set(-5.5, 0.02, -0.8);
-  rug.receiveShadow = true;
-  scene.add(rug);
+  rugRd.position.set(-7.5, 0.02, 1.8);
+  rugRd.receiveShadow = true;
+  scene.add(rugRd);
 
-  // 咖啡角地毯
-  const rug2 = new THREE.Mesh(
-    new THREE.BoxGeometry(5.6, 0.04, 4),
-    new THREE.MeshStandardMaterial({ color: 0xc77f5e, roughness: 1 })
+  // 运营区地毯（右）
+  const rugOps = new THREE.Mesh(
+    new THREE.BoxGeometry(13, 0.04, 8),
+    new THREE.MeshStandardMaterial({ color: 0xc7a07f, roughness: 1 })
   );
-  rug2.position.set(7.8, 0.02, 5);
-  rug2.receiveShadow = true;
-  scene.add(rug2);
+  rugOps.position.set(9, 0.02, 1.8);
+  rugOps.receiveShadow = true;
+  scene.add(rugOps);
 
-  // ---------- 外墙（矮墙，方便俯视） ----------
-  const wallMat = { mat: { color: 0xe8e2d6 } };
-  const wallH = 1.15;
+  // ---------- 外墙 ----------
   const mkWall = (w, d, x, z) => {
-    const wall = box(w, wallH, d, 0xe8e2d6);
-    wall.position.set(x, wallH / 2, z);
+    const wall = box(w, 1.15, d, 0xe8e2d6);
+    wall.position.set(x, 1.15 / 2, z);
     scene.add(wall);
   };
-  mkWall(W, 0.25, 0, -D / 2);          // 北
-  mkWall(W, 0.25, 0, D / 2);           // 南
-  mkWall(0.25, D, -W / 2, 0);          // 西
-  mkWall(0.25, D, W / 2, 0);           // 东
+  mkWall(W, 0.25, 0, -D / 2);   // 北
+  mkWall(W, 0.25, 0, D / 2);    // 南
+  mkWall(0.25, D, -W / 2, 0);   // 西
+  mkWall(0.25, D, W / 2, 0);    // 东
 
-  // ---------- 会议室隔断（玻璃墙） ----------
+  // ---------- 玻璃隔断工具 ----------
   const glassMat = new THREE.MeshStandardMaterial({
     color: 0x9fd8e8, transparent: true, opacity: 0.32, roughness: 0.2
   });
@@ -150,121 +208,90 @@ export function buildOffice(scene, personaCount = 6) {
     const wall = new THREE.Mesh(new THREE.BoxGeometry(w, 1.3, d), glassMat);
     wall.position.set(x, 0.65, z);
     scene.add(wall);
-    // 玻璃顶框
     const frame = box(Math.max(w, 0.1), 0.06, Math.max(d, 0.1), 0x6b7686);
     frame.position.set(x, 1.33, z);
     scene.add(frame);
   };
-  // 西侧玻璃墙：x=3.5, z 从 -7.5 到 -1
-  mkGlass(0.12, 6.5, 3.5, -4.25);
-  // 南侧玻璃墙：z=-1，x 从 5.2 到 11.5（留出门洞 3.5~5.2）
-  mkGlass(6.3, 0.12, 8.35, -1);
 
-  // ---------- 工位（按人数生成，每排 3 个，最多 3 排）----------
-  // 每个工位：desk 在前，椅子在 +z 侧，人坐下后面向 -z（朝向显示器）
-  const deskXs = [-9, -5.5, -2];
-  const deskZs = [-3.5, 1.5, 5];
-  const deskCount = Math.max(6, count);   // 少于 6 人也摆满两排，办公室不显得空
-  const deskDefs = [];
-  for (let i = 0; i < deskCount; i++) {
-    deskDefs.push({ x: deskXs[i % 3], z: deskZs[Math.floor(i / 3)] });
-  }
-  const desks = [];
-  for (const d of deskDefs) {
-    makeDesk(scene, d.x, d.z);
-    makeChair(scene, d.x, d.z + 0.85, Math.PI); // 椅背朝 +z
-    desks.push({
-      seat: { x: d.x, z: d.z + 0.85 },          // 坐下的位置
-      lookAt: { x: d.x, z: d.z },               // 坐下后面向桌子
-      standSpot: { x: d.x + 1.35, z: d.z + 0.9 } // 同事过来协作时站的位置
-    });
+  // ---------- 中间隔断（x=0，留门洞 z∈[-0.5,1.5]）----------
+  mkGlass(0.14, 7.5, 0, -4.25);   // 上段 z[-8,-0.5]
+  mkGlass(0.14, 6.5, 0, 4.75);    // 下段 z[1.5,8]
+
+  // ============================================================
+  //  产研区（x < 0）
+  // ============================================================
+  const rd = { desks: [], meetingSeats: [], coffeeSpots: [], wanderSpots: [] };
+
+  // CTO 独立办公室：西北角玻璃房 x[-18.5,-13.5] z[-8,-4.2]，门洞在南墙 x[-15.5,-14]
+  mkGlass(3, 0.12, -17, -4.2);       // 南墙左段 x[-18.5,-15.5]
+  mkGlass(0.5, 0.12, -13.75, -4.2);  // 南墙右段 x[-14,-13.5]
+  mkGlass(0.12, 3.8, -13.5, -6.1);   // 东墙 z[-8,-4.2]
+  const ctoDesk = buildWorkstation(scene, -16, -6.2);
+  const ctoOffice = {
+    seat: ctoDesk.seat,
+    lookAt: ctoDesk.lookAt,
+    standSpot: { x: -14.7, z: -5 }   // 门口附近，访客站位
+  };
+  // CTO 办公室标牌植物
+  makePlant(scene, -17.6, -7, 0.9);
+
+  // 产研开放工位：4 列 × 2 排 = 8 个
+  for (let row = 0; row < 2; row++) {
+    for (let col = 0; col < 4; col++) {
+      const x = -12 + col * 3;
+      const z = row === 0 ? -0.5 : 4;
+      rd.desks.push(buildWorkstation(scene, x, z));
+    }
   }
 
-  // ---------- 会议室 ----------
-  const mTable = box(3.4, 0.1, 1.4, 0x9b7653);
-  mTable.position.set(7.25, 0.72, -4.2);
-  scene.add(mTable);
-  for (const [dx, dz] of [[-1.5, -0.5], [1.5, -0.5], [-1.5, 0.5], [1.5, 0.5]]) {
-    const leg = box(0.08, 0.72, 0.08, 0x6e543c);
-    leg.position.set(7.25 + dx, 0.36, -4.2 + dz);
-    scene.add(leg);
-  }
-  const meetingSeats = [];
-  // 6 人以内每侧 3 把椅子，更多人时每侧 4 把
-  const seatXs = count <= 6 ? [6.05, 7.25, 8.45] : [5.65, 6.7, 7.8, 8.85];
-  for (const sx of seatXs) {
-    makeChair(scene, sx, -5.4, 0, 0x806044);
-    meetingSeats.push({ x: sx, z: -5.4, lookAt: { x: sx, z: -4.2 } });
-  }
-  for (const sx of seatXs) {
-    makeChair(scene, sx, -3.0, Math.PI, 0x806044);
-    meetingSeats.push({ x: sx, z: -3.0, lookAt: { x: sx, z: -4.2 } });
-  }
-  // 白板
-  const wbBoard = new THREE.Mesh(
+  // 产研会议室：北侧 x[-12.5,-3.5]，桌心 (-8,-6.0)
+  mkGlass(3, 0.12, -11, -4.4);       // 南墙左段
+  mkGlass(3, 0.12, -5, -4.4);        // 南墙右段（门洞 x[-9.5,-6.5] 留空）
+  mkGlass(0.12, 3.6, -3.5, -6.2);    // 东墙
+  rd.meetingSeats = buildMeetingTable(scene, -8, -6.0, 3.4, 3);
+
+  // 产研白板
+  const wb = new THREE.Mesh(
     new THREE.BoxGeometry(2.2, 1.1, 0.06),
     new THREE.MeshStandardMaterial({ color: 0xf7f7f2, roughness: 0.4 })
   );
-  wbBoard.position.set(7.25, 1.15, -7.28);
-  scene.add(wbBoard);
-  const wbFrame = box(2.36, 1.24, 0.04, 0x6b7686);
-  wbFrame.position.set(7.25, 1.15, -7.32);
-  scene.add(wbFrame);
-  // 白板上的"字"
-  for (let i = 0; i < 4; i++) {
-    const line = new THREE.Mesh(
-      new THREE.PlaneGeometry(0.7 + Math.random() * 0.9, 0.05),
-      new THREE.MeshBasicMaterial({ color: [0x4f8cff, 0xe05a4e, 0x3dbf7a, 0x333][i % 4] })
-    );
-    line.position.set(6.6 + Math.random() * 0.6, 1.45 - i * 0.2, -7.24);
-    scene.add(line);
+  wb.position.set(-8, 1.15, -7.7);
+  scene.add(wb);
+
+  // 产研咖啡角：西南 (-15.5, 5.5)
+  rd.coffeeSpots = buildCoffeeCorner(scene, -15.5, 5.5);
+  rd.coffeeSpots.push({ x: -16.8, z: 6.6, lookAt: { x: -15.5, z: 5.5 } });
+
+  rd.wanderSpots = [
+    { x: -9, z: 2 }, { x: -5, z: 6 }, { x: -16, z: 1 }, { x: -2.5, z: 3 }
+  ];
+
+  // ============================================================
+  //  运营区（x > 0）
+  // ============================================================
+  const ops = { desks: [], meetingSeats: [], coffeeSpots: [], wanderSpots: [] };
+
+  // 运营开放工位：3 个（离谱 / 艳君 / 小月）
+  for (let col = 0; col < 3; col++) {
+    ops.desks.push(buildWorkstation(scene, 4 + col * 4, 4));
   }
 
-  // ---------- 咖啡角 ----------
-  const counter = box(0.8, 0.9, 2.6, 0x7a5d43);
-  counter.position.set(10.7, 0.45, 4.6);
-  scene.add(counter);
-  const machine = box(0.42, 0.5, 0.42, 0x37404d);
-  machine.position.set(10.7, 1.15, 4.0);
-  scene.add(machine);
-  const mugColors = [0xe05a4e, 0x4f8cff, 0xf0a93c];
-  mugColors.forEach((c, i) => {
-    const mug = cylinder(0.06, 0.05, 0.1, c, 10);
-    mug.position.set(10.7, 0.95, 4.8 + i * 0.3);
-    scene.add(mug);
-  });
-  // 圆桌 + 高脚凳
-  const roundTop = cylinder(0.55, 0.55, 0.06, 0xc8a275, 24);
-  roundTop.position.set(7.6, 0.95, 5.1);
-  scene.add(roundTop);
-  const roundLeg = cylinder(0.06, 0.1, 0.95, 0x6e543c);
-  roundLeg.position.set(7.6, 0.47, 5.1);
-  scene.add(roundLeg);
+  // CEO 工位：东北角的「老板位」(15,-5.5)，相对独立
+  const ceoDesk = buildWorkstation(scene, 15, -5.5);
+  const ceoHome = {
+    seat: ceoDesk.seat,
+    lookAt: ceoDesk.lookAt,
+    standSpot: { x: 13.6, z: -4.8 },
+    x: 15, z: -5.5
+  };
+  makePlant(scene, 17.4, -6.8, 1.0);
 
-  const coffeeSpots = [];
-  const stoolAngles = [0.4, 1.9, 3.5, 5.0];
-  for (const a of stoolAngles) {
-    const sx = 7.6 + Math.cos(a) * 1.05;
-    const sz = 5.1 + Math.sin(a) * 1.05;
-    const stool = cylinder(0.2, 0.16, 0.55, 0xb55b41);
-    stool.position.set(sx, 0.27, sz);
-    scene.add(stool);
-    coffeeSpots.push({ x: sx, z: sz, lookAt: { x: 7.6, z: 5.1 } });
-  }
-  // 咖啡机旁与沙发边的站位
-  coffeeSpots.push({ x: 9.9, z: 4.1, lookAt: { x: 10.7, z: 4.0 } });
-  coffeeSpots.push({ x: 9.9, z: 5.2, lookAt: { x: 10.7, z: 4.6 } });
-  coffeeSpots.push({ x: 5.0, z: 5.4, lookAt: { x: 7.6, z: 5.1 } });
-  coffeeSpots.push({ x: 6.3, z: 3.6, lookAt: { x: 7.6, z: 5.1 } });
+  // 运营会议区：北侧 x[3,11]，桌心 (7,-6.0)
+  mkGlass(2.6, 0.12, 4.3, -4.4);
+  mkGlass(2.6, 0.12, 9.7, -4.4);     // 门洞 x[5.6,8.4]
+  ops.meetingSeats = buildMeetingTable(scene, 7, -6.0, 2.8, 2, 0x8a6a48);
 
-  // ---------- 绿植与装饰 ----------
-  makePlant(scene, -10.8, -6.8, 1.2);
-  makePlant(scene, -10.8, 6.8, 1.1);
-  makePlant(scene, 2.6, 6.8, 1.0);
-  makePlant(scene, 10.9, -0.2, 1.1);
-  makePlant(scene, 4.1, -6.9, 0.9);
-
-  // 沙发（休息区）
+  // 运营休息角（沙发 + 圆桌）：东南 (15.5,5)
   const sofa = new THREE.Group();
   const sofaBase = box(2.2, 0.45, 0.85, 0x5d7f9e);
   sofaBase.position.y = 0.25;
@@ -272,39 +299,64 @@ export function buildOffice(scene, personaCount = 6) {
   const sofaBack = box(2.2, 0.55, 0.22, 0x517091);
   sofaBack.position.set(0, 0.62, 0.34);
   sofa.add(sofaBack);
-  for (const dx of [-1.0, 1.0]) {
-    const arm = box(0.22, 0.6, 0.85, 0x517091);
-    arm.position.set(dx + (dx > 0 ? 0.1 : -0.1), 0.35, 0);
-    sofa.add(arm);
-  }
-  sofa.position.set(5.6, 0, 6.7);
+  sofa.position.set(15.5, 0, 6.4);
   scene.add(sofa);
+  ops.coffeeSpots = buildCoffeeCorner(scene, 14.5, 4.4);
+  ops.coffeeSpots.push({ x: 15.5, z: 5.4, lookAt: { x: 15.5, z: 6.4 } });
 
-  // ---------- 寻路网格 ----------
-  const grid = new NavGrid(-W / 2 + 0.5, W / 2 - 0.5, -D / 2 + 0.5, D / 2 - 0.5, 0.4);
-  // 工位桌子
-  for (const d of deskDefs) grid.blockRect(d.x, d.z, 1.8, 0.9, 0.15);
-  // 会议桌
-  grid.blockRect(7.25, -4.2, 3.4, 1.4, 0.15);
-  // 玻璃墙
-  grid.blockRect(3.5, -4.25, 0.12, 6.5, 0.2);
-  grid.blockRect(8.35, -1, 6.3, 0.12, 0.2);
-  // 咖啡角家具
-  grid.blockRect(10.7, 4.6, 0.8, 2.6, 0.15);
-  grid.blockRect(7.6, 5.1, 0.9, 0.9, 0.1);
-  // 沙发与绿植
-  grid.blockRect(5.6, 6.7, 2.2, 0.85, 0.15);
-  grid.blockRect(-10.8, -6.8, 0.6, 0.6, 0.1);
-  grid.blockRect(-10.8, 6.8, 0.6, 0.6, 0.1);
-  grid.blockRect(2.6, 6.8, 0.6, 0.6, 0.1);
-  grid.blockRect(10.9, -0.2, 0.6, 0.6, 0.1);
-  grid.blockRect(4.1, -6.9, 0.5, 0.5, 0.1);
-
-  // 自由走动的闲逛点
-  const wanderSpots = [
-    { x: -5.5, z: 5.5 }, { x: 0.8, z: 3.5 }, { x: -10, z: -0.5 },
-    { x: 1.5, z: -5.5 }, { x: 0.5, z: 0 }, { x: -3, z: 5.8 }
+  ops.wanderSpots = [
+    { x: 7, z: 1.5 }, { x: 12, z: 6 }, { x: 4, z: 0.5 }, { x: 10, z: -3 }
   ];
 
-  return { desks, meetingSeats, coffeeSpots, wanderSpots, grid };
+  // ---------- 绿植点缀 ----------
+  makePlant(scene, -18, 7, 1.1);
+  makePlant(scene, -0.8, 7, 0.9);
+  makePlant(scene, 1.2, -7, 0.9);
+  makePlant(scene, 18, 7, 1.0);
+
+  // ============================================================
+  //  寻路网格
+  // ============================================================
+  const grid = new NavGrid(-W / 2 + 0.6, W / 2 - 0.6, -D / 2 + 0.6, D / 2 - 0.6, 0.4);
+
+  // 中间隔断（留门洞 z[-0.5,1.5]）
+  grid.blockRect(0, -4.25, 0.3, 7.5, 0.1);
+  grid.blockRect(0, 4.75, 0.3, 6.5, 0.1);
+
+  // CTO 办公室墙
+  grid.blockRect(-17, -4.2, 3, 0.2, 0.1);
+  grid.blockRect(-13.75, -4.2, 0.5, 0.2, 0.1);
+  grid.blockRect(-13.5, -6.1, 0.2, 3.8, 0.1);
+  grid.blockRect(-16, -6.2, 1.8, 0.9, 0.15);   // CTO 桌
+
+  // 产研工位
+  for (const d of rd.desks) grid.blockRect(d.lookAt.x, d.lookAt.z, 1.8, 0.9, 0.15);
+  // 产研会议室墙 + 桌
+  grid.blockRect(-11, -4.4, 3, 0.2, 0.1);
+  grid.blockRect(-5, -4.4, 3, 0.2, 0.1);
+  grid.blockRect(-3.5, -6.2, 0.2, 3.6, 0.1);
+  grid.blockRect(-8, -6.0, 3.4, 1.4, 0.15);
+  // 产研咖啡角
+  grid.blockRect(-13.6, 5.1, 0.8, 2.2, 0.15);
+  grid.blockRect(-15.5, 5.5, 0.9, 0.9, 0.1);
+
+  // 运营工位
+  for (const d of ops.desks) grid.blockRect(d.lookAt.x, d.lookAt.z, 1.8, 0.9, 0.15);
+  // CEO 桌
+  grid.blockRect(15, -5.5, 1.8, 0.9, 0.15);
+  // 运营会议室墙 + 桌
+  grid.blockRect(4.3, -4.4, 2.6, 0.2, 0.1);
+  grid.blockRect(9.7, -4.4, 2.6, 0.2, 0.1);
+  grid.blockRect(7, -6.0, 2.8, 1.4, 0.15);
+  // 运营休息角
+  grid.blockRect(15.5, 6.4, 2.2, 0.85, 0.15);
+  grid.blockRect(16.4, 4.0, 0.8, 2.2, 0.15);
+  grid.blockRect(14.5, 4.4, 0.9, 0.9, 0.1);
+
+  // 绿植
+  for (const [px, pz] of [[-18, 7], [-0.8, 7], [1.2, -7], [18, 7], [-17.6, -7], [17.4, -6.8]]) {
+    grid.blockRect(px, pz, 0.6, 0.6, 0.1);
+  }
+
+  return { grid, rd, ops, ctoOffice, ceoHome };
 }

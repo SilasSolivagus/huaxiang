@@ -31,16 +31,16 @@ scene.fog = new THREE.Fog(0x232936, 32, 60);
 
 // ---------- 相机与控制 ----------
 const camera = new THREE.PerspectiveCamera(
-  50, window.innerWidth / window.innerHeight, 0.1, 100
+  50, window.innerWidth / window.innerHeight, 0.1, 120
 );
-camera.position.set(0, 15, 14.5);
+camera.position.set(0, 21, 20);
 
 const controls = new OrbitControls(camera, renderer.domElement);
-controls.target.set(0, 0.4, 0);
+controls.target.set(0, 0.5, 0);
 controls.enableDamping = true;
 controls.dampingFactor = 0.08;
-controls.minDistance = 5;
-controls.maxDistance = 34;
+controls.minDistance = 6;
+controls.maxDistance = 54;
 controls.maxPolarAngle = Math.PI / 2 - 0.1;
 controls.enablePan = true;
 
@@ -59,13 +59,20 @@ sun.shadow.bias = -0.0005;
 scene.add(sun);
 
 // ---------- 场景与人物 ----------
-const office = buildOffice(scene, personas.length);
+const office = buildOffice(scene);
 const sceneWorld = { scene, grid: office.grid };
 
-const agents = personas.map((p, i) => {
+// 初始按办公区分散落位（南侧靠墙），随后第一个工作阶段各自走到工位
+let rdSpawn = 0, opsSpawn = 0;
+const agents = personas.map((p) => {
   const a = new Agent(p, sceneWorld);
-  // 初始从办公室门口（南侧）走进来
-  a.setPosition(-1 + i * 0.8, 6.4);
+  if ((p.zone || "rd") === "ops") {
+    a.setPosition(4 + (opsSpawn % 4) * 2.4, 6.6);
+    opsSpawn++;
+  } else {
+    a.setPosition(-15 + (rdSpawn % 6) * 2.4, 6.7);
+    rdSpawn++;
+  }
   // 每个 Agent 一条独立的记忆流（隔离的核心）
   a.memory = new MemoryStream(p.id);
   return a;

@@ -20,7 +20,7 @@ const a = new Agent(PERSONAS[0], { scene, grid: office.grid });
 a.setPosition(0, 6.4);
 
 // 走到会议室座位并坐下
-const seat = office.meetingSeats[0];
+const seat = office.rd.meetingSeats[0];
 a.sitAt(seat, "sit");
 let steps = 0;
 while (a.state !== "sitting" && steps < 5000) { a.update(0.05); steps++; }
@@ -36,7 +36,7 @@ for (let i = 0; i < 200; i++) a.update(0.05);
 if (a.bubble.sprite.visible) throw new Error("bubble did not hide");
 
 // 起身走回工位
-const desk = office.desks[0];
+const desk = office.rd.desks[0];
 a.sitAt({ ...desk.seat, lookAt: desk.lookAt }, "type");
 steps = 0;
 while (a.state !== "sitting" && steps < 5000) { a.update(0.05); steps++; }

@@ -78,6 +78,9 @@ export function runtimePersonas(cfg) {
     name: p.name || `成员${i + 1}`,
     role: p.role || "同事",
     personality: p.personality || "",
+    zone: p.zone === "ops" ? "ops" : "rd",   // 缺省归产研区
+    remote: !!p.remote,
+    privateOffice: !!p.privateOffice,
     color: toHexNum(p.color),
     skin: toHexNum(p.skin || "#f2c9a4"),
     hair: toHexNum(p.hair || "#2b2b2b"),
@@ -90,4 +93,4 @@ export function runtimePersonas(cfg) {
   }));
 }
 
-export const MAX_PERSONAS = 8;
+export const MAX_PERSONAS = 13;
