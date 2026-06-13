@@ -23,4 +23,10 @@ const v = await f.embed(["x"]);
 if (v !== null) throw new Error("离线时 embed 应返回 null（触发 bigram 回退）");
 console.log("feed.embed 离线回退验证 ✓");
 
+const f2 = new Feed();   // 未 connect → online=false
+if (await f2.analysis() !== null) throw new Error("离线 analysis 应返回 null");
+if (await f2.repoDigest() !== null) throw new Error("离线 repoDigest 应返回 null");
+if (await f2.repoGrep("x") !== null) throw new Error("离线 repoGrep 应返回 null");
+console.log("feed 仓库方法离线回退验证 ✓");
+
 console.log("ALL FEED TESTS PASSED");

@@ -121,6 +121,38 @@ export class Feed {
     }
   }
 
+  /** 取静态分析指标（文件数/TODO/热点），离线返回 null */
+  async analysis() {
+    if (!this.online) return null;
+    try {
+      const res = await fetch("/api/analysis");
+      if (!res.ok) return null;
+      return await res.json();
+    } catch { return null; }
+  }
+
+  /** 取每日仓库摘要文本，离线返回 null */
+  async repoDigest() {
+    if (!this.online) return null;
+    try {
+      const res = await fetch("/api/repo/digest");
+      if (!res.ok) return null;
+      const data = await res.json();
+      return data.text || null;
+    } catch { return null; }
+  }
+
+  /** 代码检索，返回 [{file,line,text}] 或 null */
+  async repoGrep(q) {
+    if (!this.online || !q) return null;
+    try {
+      const res = await fetch(`/api/repo/grep?q=${encodeURIComponent(q)}`);
+      if (!res.ok) return null;
+      const data = await res.json();
+      return Array.isArray(data.hits) ? data.hits : null;
+    } catch { return null; }
+  }
+
   ack(ids) {
     if (!this.online || !ids.length) return;
     fetch("/api/events/ack", {
