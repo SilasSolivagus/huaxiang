@@ -112,7 +112,7 @@ html, body {
   background: rgba(127, 212, 154, 0.15);
 }
 
-#admin-link {
+#admin-link, #records-link {
   text-decoration: none;
   font-size: 16px;
   color: #cfd6e0;
@@ -125,7 +125,7 @@ html, body {
   justify-content: center;
 }
 
-#admin-link:active { background: #4f8cff; }
+#admin-link:active, #records-link:active { background: #4f8cff; }
 
 /* ---------- 成员栏 ---------- */
 #roster {
@@ -498,7 +498,7 @@ html, body {
   #phase-label { display: none; }
   #ai-chip { display: none; }
   #feed-chip { display: none; }
-  #admin-link { width: 26px; height: 26px; }
+  #admin-link, #records-link { width: 26px; height: 26px; }
   #roster { top: 52px; justify-content: flex-start; left: 0; transform: none; max-width: 100vw; padding: 4px 8px; }
   .roster-chip .activity { display: none; }
   #event-log { width: 180px; right: 8px; bottom: 8px; }
