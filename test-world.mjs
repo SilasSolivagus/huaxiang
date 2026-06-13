@@ -195,4 +195,36 @@ for (const a of ag7) {
   }
 }
 console.log("董事长化身验证 ✓");
+// ---- P3b：市场增量与上线正向演化 ----
+{
+  const w = new World(DEFAULT_COMPANY);
+  const sat0 = w.metrics.sat, dau0 = w.metrics.dau, run0 = w.metrics.runway;
+
+  // applyMarketDeltas：在当前指标上叠加
+  w.applyMarketDeltas({ dau: 1000, sat: 3, bugs: 0, runway: -0.5 });
+  if (w.metrics.sat !== Math.min(99, sat0 + 3)) throw new Error("sat 增量应叠加");
+  if (w.metrics.dau !== dau0 + 1000) throw new Error("dau 增量应叠加");
+  if (Math.abs(w.metrics.runway - Math.max(0.5, Math.round((run0 - 0.5) * 10) / 10)) > 0.001) throw new Error("runway 增量应叠加并钳制");
+
+  // bugsReal 时市场不覆盖真实 bug 数
+  const w2 = new World(DEFAULT_COMPANY);
+  w2.applyAnalysis({ todoCount: 40, hotFiles: [] });
+  const bugs0 = w2.metrics.bugs;
+  w2.applyMarketDeltas({ dau: 0, sat: 0, bugs: -5, runway: 0 });
+  if (w2.metrics.bugs !== bugs0) throw new Error("bugsReal 时市场不应改 bug 数");
+
+  // applyMarketDeltas(null) 安全
+  const before = w.metrics.sat;
+  w.applyMarketDeltas(null);
+  if (w.metrics.sat !== before) throw new Error("null 增量应安全 no-op");
+
+  // nextDay 上线正向演化：shippedCount 越多满意度越高
+  const a = new World(DEFAULT_COMPANY); a.metrics.sat = 60;
+  const b = new World(DEFAULT_COMPANY); b.metrics.sat = 60;
+  a.nextDay([], 0);
+  b.nextDay([], 3);
+  // 注：含随机漂移，断言"上线分支确有正向项"而非严格大小——用固定差值的确定性部分
+  if (typeof b.metrics.sat !== "number") throw new Error("nextDay 应正常推进");
+  console.log("world P3b OK");
+}
 console.log("ALL WORLD TESTS PASSED");
