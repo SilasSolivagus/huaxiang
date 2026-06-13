@@ -14,7 +14,19 @@ export function cosine(a, b) {
  * @param {{extractor?: (texts:string[]) => Promise<number[][]>}} deps
  */
 export function createEmbedder(model, deps = {}) {
-  const extractor = deps.extractor || null;
+  let pipe = null, loading = null;
+  async function realExtractor(texts) {
+    if (!pipe) {
+      if (!loading) {
+        const { pipeline } = await import("@xenova/transformers");
+        loading = pipeline("feature-extraction", model).then(p => { pipe = p; return p; });
+      }
+      await loading;
+    }
+    const out = await pipe(texts, { pooling: "mean", normalize: true });
+    return out.tolist();   // [[...], [...]]
+  }
+  const extractor = deps.extractor || realExtractor;
 
   async function embed(texts) {
     const list = (texts || []).map(t => String(t || ""));

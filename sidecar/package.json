@@ -2,12 +2,15 @@
   "name": "huaxiang-sidecar",
   "private": true,
   "type": "module",
-  "engines": { "node": ">=22.9" },
+  "engines": {
+    "node": ">=22.9"
+  },
   "scripts": {
     "start": "node --env-file-if-exists=.env src/server.js",
     "test": "node --test"
   },
   "dependencies": {
+    "@xenova/transformers": "^2.17.2",
     "express": "^4.19.2",
     "rss-parser": "^3.13.0"
   }

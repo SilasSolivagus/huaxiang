@@ -18,7 +18,8 @@ const FRONTEND_ROOT = join(SIDECAR_ROOT, "..");
 export function loadConfig() {
   const defaults = {
     port: 7878, company: "", feeds: [], relevanceThreshold: 6, rssIntervalMinutes: 30,
-    repoPath: "", repoDigestMaxCommits: 10
+    repoPath: "", repoDigestMaxCommits: 10,
+    embedEnabled: true, embedModel: "Xenova/bge-small-zh-v1.5"
   };
   const path = join(SIDECAR_ROOT, "config.json");
   if (!existsSync(path)) return defaults;

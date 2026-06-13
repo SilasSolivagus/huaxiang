@@ -8,5 +8,7 @@
   "relevanceThreshold": 6,
   "rssIntervalMinutes": 30,
   "repoPath": "",
-  "repoDigestMaxCommits": 10
+  "repoDigestMaxCommits": 10,
+  "embedEnabled": true,
+  "embedModel": "Xenova/bge-small-zh-v1.5"
 }
