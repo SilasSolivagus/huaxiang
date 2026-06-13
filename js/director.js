@@ -18,6 +18,7 @@ import { buildItems, composeAgentSummary } from "./board.js";
 import { minutesEmpty, minutesToText } from "./cognition/minutes.js";
 import { newActionItem } from "./cognition/actionItems.js";
 import { findCollabPair, planSummaryText } from "./cognition/plan.js";
+import { shouldReflect, formatMemoriesWithIds } from "./cognition/reflect.js";
 
 const MINUTES_PER_SECOND = 2.2;   // 1 秒现实时间 = 2.2 分钟模拟时间（1x 速度）
 const DAY_START = 9 * 60;          // 09:00
@@ -612,26 +613,33 @@ export class Director {
     }
   }
 
-  // ---------- 每日反思 ----------
+  // ---------- 每日反思（反思树）----------
 
+  /** 下班前：重要度累积过阈值者，从近期记忆提问→逐题生成带证据洞见，存为反思记忆（全员入队）。 */
   runReflections() {
     if (!this.llm?.enabled || this.llm.usage === "economy") return;
+    const company = this.world?.companyBrief?.();
     for (const a of this.agents) {
-      if (!a.memory) continue;
-      const digest = a.memory.todayDigest(this.day);
-      if (!digest) continue;
+      if (!a.memory || !shouldReflect(a.memory.items)) continue;
       const day = this.day;
-      this.llm.reflect({
-        persona: a.persona,
-        company: this.world?.companyBrief(),
-        digest,
-        day
-      }).then(text => {
-        if (text) {
-          a.memory.add(`今日反思：${text}`, { importance: 8, type: "reflect", day, time: "18:00" });
-          this.log(`🪞 ${a.persona.name} 的反思：${text}`, "log-collab");
-        }
-      });
+      const memories = formatMemoriesWithIds(a.memory.items);
+      const validIds = a.memory.items.filter(m => m.id != null).map(m => m.id);
+      this.llm.reflectQuestions({ persona: a.persona, company, memories })
+        .then(questions => {
+          if (!questions || !questions.length) return;
+          for (const q of questions.slice(0, 3)) {
+            this.llm.reflectInsight({ persona: a.persona, company, question: q, memories })
+              .then(r => {
+                if (!r || !r.insight) return;
+                const evidence = r.evidence.filter(id => validIds.includes(id));
+                a.memory.add(`反思：${r.insight}`, { importance: 8, type: "reflect", day, time: "18:00", evidence });
+                const cite = evidence.length ? `（依据 #${evidence.join("、#")}）` : "";
+                this.log(`🪞 ${a.persona.name}：${r.insight}${cite}`, "log-collab");
+              })
+              .catch(() => {});
+          }
+        })
+        .catch(() => {});
     }
   }
 
