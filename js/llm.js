@@ -11,6 +11,7 @@ import { normalizeMinutes } from "./cognition/minutes.js";
 import { normalizeMarketReaction } from "./cognition/market.js";
 import { normalizePlan } from "./cognition/plan.js";
 import { parseQuestions, parseInsight } from "./cognition/reflect.js";
+import { parseReaction } from "./cognition/react.js";
 
 const ERROR_COOLDOWN_MS = 60000;
 const USAGE_INTERVALS = { economy: 999999999, standard: 4500, immersive: 2200 };
@@ -310,6 +311,33 @@ export class LLMClient {
         return normalizePlan(raw);
       } catch (e) {
         console.warn("每日计划生成失败：", e.message || e);
+        this.lastError = String(e.message || e);
+        this.cooldownUntil = Date.now() + ERROR_COOLDOWN_MS;
+        return null;
+      }
+    });
+  }
+
+  /**
+   * 突发反应：对一条与本角色相关的突发消息即时反应。单次小调用，沿用 available 限流（每事件仅 top2 调用）。
+   * @param {object} opts { persona, company, event }
+   * @returns {Promise<{utterance,action}|null>}
+   */
+  async react({ persona, company, event }) {
+    if (!this.available) return null;
+    return this.enqueue(async () => {
+      try {
+        const system =
+          `你在扮演「${persona.name}」（${persona.role}），性格：${persona.personality || "暂无"}。` +
+          (company ? `公司背景：${company}\n` : "") +
+          `刚收到一条跟你比较相关的突发市场消息。请即时反应：说一句话，并决定要不要采取一个行动。` +
+          `只输出 JSON：{"utterance":"≤30字的一句话","action":"goto_colleague/call_meeting/investigate_repo/none"}。` +
+          `action 含义：找同事对一下 / 拉个短会 / 去查代码 / 不必行动。不要输出 JSON 以外的任何文字。`;
+        const raw = await this.chatRaw(system, `突发消息：${event}`, 200);
+        this.lastError = null;
+        return parseReaction(raw);
+      } catch (e) {
+        console.warn("突发反应生成失败：", e.message || e);
         this.lastError = String(e.message || e);
         this.cooldownUntil = Date.now() + ERROR_COOLDOWN_MS;
         return null;
