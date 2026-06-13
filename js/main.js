@@ -12,6 +12,7 @@ import { Agent } from "./agent.js";
 import { Director } from "./director.js";
 import { Feed } from "./feed.js";
 import { Board } from "./board.js";
+import { addActivity } from "./activityLog.js";
 
 // 从管理后台保存的配置加载人物画像、模型设置与公司设定
 const config = loadConfig();
@@ -128,6 +129,7 @@ function log(msg, cls = "") {
   item.appendChild(document.createTextNode(msg));
   logBody.prepend(item);
   while (logBody.children.length > 60) logBody.lastChild.remove();
+  addActivity({ day: director ? director.day : world.day, time: director ? director.clockLabel : "09:00", text: msg, cls });
 }
 
 log(`☀️ 第 ${world.day} 天开始了，团队陆续到岗`, "log-meeting");
