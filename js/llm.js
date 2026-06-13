@@ -9,6 +9,7 @@
 
 import { normalizeMinutes } from "./cognition/minutes.js";
 import { normalizeMarketReaction } from "./cognition/market.js";
+import { normalizePlan } from "./cognition/plan.js";
 
 const ERROR_COOLDOWN_MS = 60000;
 const USAGE_INTERVALS = { economy: 999999999, standard: 4500, immersive: 2200 };
@@ -247,6 +248,37 @@ export class LLMClient {
         return normalizeMarketReaction(raw);
       } catch (e) {
         console.warn("市场反应生成失败：", e.message || e);
+        this.lastError = String(e.message || e);
+        this.cooldownUntil = Date.now() + ERROR_COOLDOWN_MS;
+        return null;
+      }
+    });
+  }
+
+  /**
+   * 每日计划：以某角色身份给今天定 1~3 条 intentions。
+   * @param {object} opts { persona, company, reflection, snapshot, openItems: string[] }
+   * @returns {Promise<{intentions}|null>} 失败/不可用返回 null
+   */
+  async dailyPlan({ persona, company, reflection, snapshot, openItems = [] }) {
+    if (!this.available) return null;
+    return this.enqueue(async () => {
+      try {
+        const system =
+          `你在扮演「${persona.name}」（${persona.role}），性格：${persona.personality || "暂无"}。` +
+          (company ? `公司背景：${company}\n` : "") +
+          `现在是早上开工，请给自己定今天的计划。结合昨日反思、今晨情况和你名下没做完的事，` +
+          `只输出 JSON：{"intentions":[{"slot":"上午/下午/全天","what":"具体一件事","with":"要找的同事名或null","kind":"investigate/collab/build/review/ops/rest"}]}。` +
+          `最多 3 条、要具体可执行；需要协作就把 with 填同事名、kind 设 collab。不要输出 JSON 以外的任何文字。`;
+        const user =
+          (reflection ? `昨日反思：${reflection}\n` : "") +
+          (snapshot ? `今晨情况：\n${snapshot}\n` : "") +
+          (openItems.length ? `你名下未完成的行动项：\n${openItems.map(s => "- " + s).join("\n")}\n` : "");
+        const raw = await this.chatRaw(system, user, 500);
+        this.lastError = null;
+        return normalizePlan(raw);
+      } catch (e) {
+        console.warn("每日计划生成失败：", e.message || e);
         this.lastError = String(e.message || e);
         this.cooldownUntil = Date.now() + ERROR_COOLDOWN_MS;
         return null;
