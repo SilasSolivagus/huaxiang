@@ -31,5 +31,23 @@ export function createRepoService(rootPath, deps = {}) {
     return real;
   }
 
-  return { root, run, resolveInside };
+  // 文件清单：用 ripgrep --files（自动遵守 .gitignore、跳过 node_modules/.git），相对路径
+  async function tree(maxFiles = 400) {
+    let out;
+    try { out = await run("rg", ["--files"], root); }
+    catch (e) { if (e.code === 1) return []; throw e; }
+    return out.split("\n").map(s => s.trim()).filter(Boolean).slice(0, maxFiles);
+  }
+
+  // 读单文件：白名单校验 + 截断
+  async function readFile(rel, maxBytes = 20000) {
+    const abs = resolveInside(rel);
+    const st = statSync(abs);
+    if (!st.isFile()) throw new Error("not a file");
+    const full = readFileSync(abs, "utf8");
+    const truncated = full.length > maxBytes;
+    return { path: rel, text: truncated ? full.slice(0, maxBytes) : full, truncated, bytes: st.size };
+  }
+
+  return { root, run, resolveInside, tree, readFile };
 }

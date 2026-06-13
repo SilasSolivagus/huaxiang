@@ -19,3 +19,27 @@ test("resolveInside 拒绝 .. 逃逸、绝对路径、上级目录", () => {
   assert.throws(() => svc.resolveInside("../package.json"));
   assert.throws(() => svc.resolveInside("js/../../.."));
 });
+
+test("tree 列出仓库文件（相对路径，含 js/main.js，排除 node_modules/.git）", async () => {
+  const svc = createRepoService(REPO_ROOT);
+  const files = await svc.tree();
+  assert.ok(files.includes("js/main.js"));
+  assert.ok(files.includes("README.md"));
+  assert.ok(!files.some(f => f.startsWith("node_modules/") || f.startsWith(".git/")));
+  assert.ok(files.length <= 400);
+});
+
+test("readFile 读到内容并按上限截断", async () => {
+  const svc = createRepoService(REPO_ROOT);
+  const r = await svc.readFile("README.md");
+  assert.match(r.text, /画像办公室|123/);
+  assert.equal(r.truncated, false);
+  const small = await svc.readFile("README.md", 50);
+  assert.equal(small.text.length, 50);
+  assert.equal(small.truncated, true);
+});
+
+test("readFile 对越界路径抛错", async () => {
+  const svc = createRepoService(REPO_ROOT);
+  await assert.rejects(() => svc.readFile("../../etc/passwd"));
+});
