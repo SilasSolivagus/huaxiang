@@ -15,6 +15,7 @@ if (big.length !== 3 || big[0].text !== "n2" || big[2].text !== "n4") throw new 
 const src = [{ text: "x" }];
 const out = appendCapped(src, { text: "y" }, 10);
 if (src.length !== 1) throw new Error("不应修改入参数组");
+if (out.length !== 2 || out[1].text !== "y") throw new Error("应返回含新条目的新数组");
 if (appendCapped(null, { text: "z" }).length !== 1) throw new Error("null 入参应从空开始");
 
 // 无 localStorage（node）：addActivity 安全 no-op、loadActivity 返回 []

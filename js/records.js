@@ -127,7 +127,7 @@ export function initRecords() {
     });
 
   function subBtn(label, key, active, extraHtml = "") {
-    return `<button class="rc-sub${active ? " active" : ""}" data-sub="${key}">${extraHtml}${escapeHtml(label)}</button>`;
+    return `<button class="rc-sub${active ? " active" : ""}" data-sub="${escapeHtml(key)}">${extraHtml}${escapeHtml(label)}</button>`;
   }
 
   function renderCategory() {
