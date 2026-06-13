@@ -32,7 +32,7 @@ export function loadConfig() {
   }
 }
 
-export function buildApp({ eventStore, policyStore, status, repo = null, analysisProvider = null, digestProvider = null, embedder = null }) {
+export function buildApp({ eventStore, policyStore, status, repo = null, analysisProvider = null, digestProvider = null, embedder = null, artifactStore = null }) {
   const app = express();
   app.use(express.json());
 
@@ -67,6 +67,19 @@ export function buildApp({ eventStore, policyStore, status, repo = null, analysi
     }
   });
   app.delete("/api/policies/:id", (req, res) => res.json({ ok: policyStore.deactivate(req.params.id) }));
+
+  // ---------- 产出物库（会议纪要 / 日报 / 市场反馈）----------
+  const artifactGuard = (req, res, next) => {
+    if (!artifactStore) return res.status(503).json({ error: "artifacts 未启用" });
+    next();
+  };
+  app.get("/api/artifacts", artifactGuard, (req, res) => {
+    res.json({ artifacts: artifactStore.list({ type: req.query.type, day: req.query.day, limit: Number(req.query.limit) || 50 }) });
+  });
+  app.post("/api/artifacts", artifactGuard, (req, res) => {
+    try { res.json(artifactStore.add(req.body)); }
+    catch (e) { res.status(400).json({ error: e.message }); }
+  });
 
   // ---------- 代码仓库（只读，需配置 repoPath）----------
   const repoGuard = (req, res, next) => {
@@ -134,6 +147,8 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const db = openDb(join(SIDECAR_ROOT, "data", "huaxiang.db"));
   const eventStore = new EventStore(db);
   const policyStore = new PolicyStore(db);
+  const { ArtifactStore } = await import("./artifactStore.js");
+  const artifactStore = new ArtifactStore(db);
   const llm = new SidecarLLM();
   const parser = new Parser({ timeout: 10000 });
 
@@ -180,7 +195,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const { analyzeRepo } = await import("./analysis.js");
   const { repoDigest } = await import("./digest.js");
   const app = buildApp({
-    eventStore, policyStore, status, repo,
+    eventStore, policyStore, artifactStore, status, repo,
     analysisProvider: repo ? () => analyzeRepo(repo) : null,
     digestProvider: repo ? () => repoDigest(repo, { maxCommits: cfg.repoDigestMaxCommits }) : null,
     embedder

@@ -155,6 +155,43 @@ test("未配置 repo 时端点返回 503", async () => {
   assert.equal(res.status, 503);
 });
 
+import { ArtifactStore } from "../src/artifactStore.js";
+
+test("/api/artifacts：POST 写入、GET 按 type/day 翻阅；未配置返回 503", async () => {
+  const db = openDb(":memory:");
+  const status = { collectors: { rss: { enabled: false, reason: "test" } } };
+  const artifactStore = new ArtifactStore(db);
+  const app = buildApp({ eventStore: new EventStore(db), policyStore: new PolicyStore(db), status, artifactStore });
+  const server = app.listen(0, "127.0.0.1");
+  await new Promise(r => server.once("listening", r));
+  after(() => server.close());
+  const base = `http://127.0.0.1:${server.address().port}`;
+
+  const created = await (await fetch(`${base}/api/artifacts`, {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ type: "minutes", day: 4, content: "决议：上线限速优化", meta: { zone: "rd" } })
+  })).json();
+  assert.match(created.id, /^art_/);
+
+  const bad = await fetch(`${base}/api/artifacts`, {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ type: "", content: "x" })
+  });
+  assert.equal(bad.status, 400);
+
+  const list = await (await fetch(`${base}/api/artifacts?type=minutes&day=4`)).json();
+  assert.equal(list.artifacts.length, 1);
+  assert.equal(list.artifacts[0].content, "决议：上线限速优化");
+
+  const none = await (await fetch(`${base}/api/artifacts?day=99`)).json();
+  assert.equal(none.artifacts.length, 0);
+
+  // 未注入 artifactStore 的 app（startTestServer）→ 503
+  const { server: s2, base: base2 } = await startTestServer();
+  after(() => s2.close());
+  assert.equal((await fetch(`${base2()}/api/artifacts`)).status, 503);
+});
+
 test("/api/embed：用注入 embedder 返回向量；未配置返回 503", async () => {
   const db = openDb(":memory:");
   const status = { collectors: { rss: { enabled: false, reason: "test" } }, embed: { enabled: true } };
