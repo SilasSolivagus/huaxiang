@@ -32,7 +32,7 @@ console.log("今日摘要:", m1.todayDigest(1).split("\n").length, "条");
 import * as THREE from "three";
 import { buildOffice } from "./js/office.js";
 import { PERSONAS } from "./js/personas.js";
-import { Director } from "./js/director.js";
+import { Director, codeRefNote } from "./js/director.js";
 
 class StubAgent {
   constructor(p, id) { this.persona = p; this.activity = ""; this.isBusy = false; this.memory = new MemoryStream("t-" + id); }
@@ -168,4 +168,10 @@ if (!sc.includes("限速逻辑")) throw new Error("产研会议场景应注入�
 const scOps = d6.meetingScene({ type: "review" }, "ops");
 if (scOps.includes("限速逻辑")) throw new Error("运营会议不应注入代码摘要");
 console.log("director 仓库状态注入验证 ✓");
+// ---- 代码引用便签（纯函数）----
+if (codeRefNote(null) !== "") throw new Error("无命中应返回空串");
+if (codeRefNote([]) !== "") throw new Error("空数组应返回空串");
+const note = codeRefNote([{ file: "js/office.js", line: 120, text: "function buildOffice()" }]);
+if (!note.includes("js/office.js") || !note.includes("120")) throw new Error("便签应含 file:line");
+console.log("代码引用便签验证 ✓");
 console.log("ALL WORLD TESTS PASSED");

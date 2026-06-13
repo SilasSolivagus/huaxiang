@@ -429,9 +429,14 @@ export class Director {
     visitor.standAt({ ...desk.standSpot, lookAt: desk.seat }, "talk");
 
     const tx = [];   // 本次协作的对话上下文
-    const scene = `工位旁的工作讨论：${visitor.persona.name} 走到 ${host.persona.name} 的工位。结合你记得的事情聊一个具体话题。`;
+    let codeNote = "";
+    if (zone === "rd" && this.feed?.repoGrep) {
+      const term = DOMAIN_TERMS[Math.floor(Math.random() * DOMAIN_TERMS.length)];
+      this.feed.repoGrep(term).then(hits => { codeNote = codeRefNote(hits); }).catch(() => {});
+    }
+    const sceneBase = `工位旁的工作讨论：${visitor.persona.name} 走到 ${host.persona.name} 的工位。结合你记得的事情聊一个具体话题。`;
     const turn = (agent, fallbackPool) => {
-      this.speakSmart(agent, scene, pick(fallbackPool), {
+      this.speakSmart(agent, sceneBase + codeNote, pick(fallbackPool), {
         radius: HEAR_RADIUS_TALK,
         importance: 4,
         logCls: "log-collab",
@@ -575,4 +580,13 @@ function freshMeet() {
 
 function freshRecord() {
   return { market: [], breaking: [], policies: [], collabs: [], bugsFixed: 0 };
+}
+
+const DOMAIN_TERMS = ["限速", "带宽", "直链", "上传", "下载", "分享", "存储", "会员"];
+
+export function codeRefNote(hits) {
+  if (!Array.isArray(hits) || hits.length === 0) return "";
+  const h = hits[0];
+  if (!h || !h.file) return "";
+  return `（讨论中翻了下代码：${h.file}:${h.line} ${String(h.text || "").trim().slice(0, 40)}）`;
 }
