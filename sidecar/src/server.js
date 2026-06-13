@@ -31,12 +31,12 @@ export function loadConfig() {
   }
 }
 
-export function buildApp({ eventStore, policyStore, status, repo = null, analysisProvider = null, digestProvider = null }) {
+export function buildApp({ eventStore, policyStore, status, repo = null, analysisProvider = null, digestProvider = null, embedder = null }) {
   const app = express();
   app.use(express.json());
 
   app.get("/api/health", (req, res) => {
-    res.json({ ok: true, today: eventStore.todayCount(), collectors: status.collectors, repo: status.repo });
+    res.json({ ok: true, today: eventStore.todayCount(), collectors: status.collectors, repo: status.repo, embed: status.embed });
   });
 
   app.get("/api/snapshot", (req, res) => {
@@ -103,6 +103,17 @@ export function buildApp({ eventStore, policyStore, status, repo = null, analysi
     catch (e) { res.status(500).json({ error: e.message }); }
   });
 
+  // ---------- 本地 embedding（需开启且模型可加载）----------
+  app.post("/api/embed", async (req, res) => {
+    if (!embedder) return res.status(503).json({ error: "embed 未启用" });
+    try {
+      const texts = Array.isArray(req.body?.texts) ? req.body.texts : [];
+      res.json({ vectors: await embedder.embed(texts) });
+    } catch (e) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   // 静态托管仓库根，但屏蔽点文件（.git 等）与 sidecar 自身（源码/数据库）。
   // 必须对解码后的路径判断——express.static 内部会解码百分号编码。
   app.use((req, res, next) => {
@@ -142,9 +153,17 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     : cfg.feeds.length === 0
       ? "config.json 未配置 feeds（见 config.example.json）"
       : null;
+
+  let embedder = null;
+  if (cfg.embedEnabled) {
+    const { createEmbedder } = await import("./embed.js");
+    embedder = createEmbedder(cfg.embedModel);   // 懒加载：首次 /api/embed 时才下载模型
+  }
+
   const status = {
     collectors: { rss: { enabled: !rssReason, lastRun: null, lastResult: null, reason: rssReason } },
-    repo: { enabled: !!repo, path: cfg.repoPath || "", reason: repoReason }
+    repo: { enabled: !!repo, path: cfg.repoPath || "", reason: repoReason },
+    embed: { enabled: !!embedder, model: cfg.embedModel }
   };
 
   const { analyzeRepo } = await import("./analysis.js");
@@ -152,7 +171,8 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const app = buildApp({
     eventStore, policyStore, status, repo,
     analysisProvider: repo ? () => analyzeRepo(repo) : null,
-    digestProvider: repo ? () => repoDigest(repo, { maxCommits: cfg.repoDigestMaxCommits }) : null
+    digestProvider: repo ? () => repoDigest(repo, { maxCommits: cfg.repoDigestMaxCommits }) : null,
+    embedder
   });
   app.listen(cfg.port, "127.0.0.1", () => {
     console.log(`sidecar 运行中：http://127.0.0.1:${cfg.port}（办公室页面也从这里打开）`);

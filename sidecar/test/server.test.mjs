@@ -154,3 +154,27 @@ test("未配置 repo 时端点返回 503", async () => {
   const res = await fetch(`${base()}/api/repo/tree`);
   assert.equal(res.status, 503);
 });
+
+test("/api/embed：用注入 embedder 返回向量；未配置返回 503", async () => {
+  const db = openDb(":memory:");
+  const status = { collectors: { rss: { enabled: false, reason: "test" } }, embed: { enabled: true } };
+  const fakeEmbedder = { embed: async (texts) => texts.map(t => [t.length, 1]) };
+  const app = buildApp({ eventStore: new EventStore(db), policyStore: new PolicyStore(db), status, embedder: fakeEmbedder });
+  const server = app.listen(0, "127.0.0.1");
+  await new Promise(r => server.once("listening", r));
+  after(() => server.close());
+  const base = `http://127.0.0.1:${server.address().port}`;
+
+  const r = await (await fetch(`${base}/api/embed`, {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ texts: ["ab", "abcd"] })
+  })).json();
+  assert.deepEqual(r.vectors, [[2, 1], [4, 1]]);
+
+  const { server: s2, base: base2 } = await startTestServer();
+  after(() => s2.close());
+  const res = await fetch(`${base2()}/api/embed`, {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ texts: ["x"] })
+  });
+  assert.equal(res.status, 503);
+});
