@@ -142,7 +142,7 @@ export class World {
   }
 
   /** 进入新的一天：指标自然演化 + 新事件（realEvents 来自 sidecar） */
-  nextDay(realEvents = []) {
+  nextDay(realEvents = [], shippedCount = 0) {
     const m = this.metrics;
     // 服务器故障第二天恢复
     if (!m.serverOk) m.serverOk = true;
@@ -151,6 +151,12 @@ export class World {
     m.bugs += Math.floor(Math.random() * 6) - 2;
     m.sat += Math.floor(Math.random() * 5) - 2 + (m.bugs > 22 ? -2 : 0);
     m.runway -= 0.05;
+    // 当日上线的改进：确定性正向演化（即使 LLM 不可用也让闭环可见）
+    if (shippedCount > 0) {
+      m.sat += shippedCount;
+      m.dau = Math.round(m.dau * (1 + 0.01 * shippedCount));
+      if (!this.bugsReal) m.bugs = Math.max(0, m.bugs - shippedCount);
+    }
     this.clampMetrics();
     this.day += 1;
     this.generateEvents(realEvents);
@@ -174,6 +180,18 @@ export class World {
       return true;
     }
     return false;
+  }
+
+  /** 应用市场反应增量（在当前指标上叠加；bugsReal 时不动 bug 数） */
+  applyMarketDeltas(deltas) {
+    if (!deltas) return;
+    const m = this.metrics;
+    m.dau = Math.round(m.dau + (Number(deltas.dau) || 0));
+    m.sat += Number(deltas.sat) || 0;
+    if (!this.bugsReal) m.bugs += Number(deltas.bugs) || 0;
+    m.runway += Number(deltas.runway) || 0;
+    this.clampMetrics();
+    this.save();
   }
 
   /** 给 AI 的公司背景简介 */
