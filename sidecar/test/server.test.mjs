@@ -4,6 +4,12 @@ import { openDb } from "../src/db.js";
 import { EventStore } from "../src/eventStore.js";
 import { PolicyStore } from "../src/policyStore.js";
 import { buildApp } from "../src/server.js";
+import { createRepoService } from "../src/repo.js";
+import { repoDigest } from "../src/digest.js";
+import { analyzeRepo } from "../src/analysis.js";
+import { fileURLToPath as _f } from "node:url";
+import { dirname as _d, join as _j } from "node:path";
+const REPO_ROOT = _j(_d(_f(import.meta.url)), "..", "..");
 
 async function startTestServer() {
   const db = openDb(":memory:");
@@ -15,6 +21,20 @@ async function startTestServer() {
   await new Promise(resolve => server.once("listening", resolve));
   const base = () => `http://127.0.0.1:${server.address().port}`;
   return { server, base, eventStore, policyStore };
+}
+
+function startRepoServer() {
+  const db = openDb(":memory:");
+  const eventStore = new EventStore(db);
+  const policyStore = new PolicyStore(db);
+  const repo = createRepoService(REPO_ROOT);
+  const status = { collectors: { rss: { enabled: false, lastRun: null, lastResult: null, reason: "test" } },
+                   repo: { enabled: true, path: REPO_ROOT } };
+  const app = buildApp({ eventStore, policyStore, status, repo,
+    analysisProvider: () => analyzeRepo(repo),
+    digestProvider: () => repoDigest(repo, { maxCommits: 5 }) });
+  const server = app.listen(0, "127.0.0.1");
+  return new Promise(r => server.once("listening", () => r({ server, base: () => `http://127.0.0.1:${server.address().port}` })));
 }
 
 test("API 集成：health / snapshot / ack / policies", async () => {
@@ -100,4 +120,37 @@ test("静态托管不暴露 .git 与 sidecar 目录", async () => {
   assert.equal((await fetch(`${base()}/%2egit/config`)).status, 403);
   assert.equal((await fetch(`${base()}/%73idecar/package.json`)).status, 403);
   assert.equal((await fetch(`${base()}/sidecar%2fpackage.json`)).status, 403);
+});
+
+test("repo 端点：tree / file / grep / log / analysis / digest", async () => {
+  const { server, base } = await startRepoServer();
+  after(() => server.close());
+
+  const tree = await (await fetch(`${base()}/api/repo/tree`)).json();
+  assert.ok(tree.files.includes("js/main.js"));
+
+  const file = await (await fetch(`${base()}/api/repo/file?path=README.md`)).json();
+  assert.match(file.text, /画像办公室|123/);
+
+  const grep = await (await fetch(`${base()}/api/repo/grep?q=buildOffice`)).json();
+  assert.ok(grep.hits.some(h => h.file.includes("office.js")));
+
+  const log = await (await fetch(`${base()}/api/repo/log?n=3`)).json();
+  assert.equal(log.commits.length, 3);
+
+  const analysis = await (await fetch(`${base()}/api/analysis`)).json();
+  assert.ok(analysis.fileCount > 5);
+
+  const digest = await (await fetch(`${base()}/api/repo/digest`)).json();
+  assert.ok(digest.text.length > 0);
+
+  const escaped = await fetch(`${base()}/api/repo/file?path=../../etc/passwd`);
+  assert.equal(escaped.status, 400);
+});
+
+test("未配置 repo 时端点返回 503", async () => {
+  const { server, base } = await startTestServer();
+  after(() => server.close());
+  const res = await fetch(`${base()}/api/repo/tree`);
+  assert.equal(res.status, 503);
 });

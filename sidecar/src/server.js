@@ -30,12 +30,12 @@ export function loadConfig() {
   }
 }
 
-export function buildApp({ eventStore, policyStore, status }) {
+export function buildApp({ eventStore, policyStore, status, repo = null, analysisProvider = null, digestProvider = null }) {
   const app = express();
   app.use(express.json());
 
   app.get("/api/health", (req, res) => {
-    res.json({ ok: true, today: eventStore.todayCount(), collectors: status.collectors });
+    res.json({ ok: true, today: eventStore.todayCount(), collectors: status.collectors, repo: status.repo });
   });
 
   app.get("/api/snapshot", (req, res) => {
@@ -66,6 +66,42 @@ export function buildApp({ eventStore, policyStore, status }) {
   });
   app.delete("/api/policies/:id", (req, res) => res.json({ ok: policyStore.deactivate(req.params.id) }));
 
+  // ---------- 代码仓库（只读，需配置 repoPath）----------
+  const repoGuard = (req, res, next) => {
+    if (!repo) return res.status(503).json({ error: "repo 未配置（在 config.json 设置 repoPath）" });
+    next();
+  };
+
+  app.get("/api/repo/tree", repoGuard, async (req, res) => {
+    try { res.json({ files: await repo.tree() }); }
+    catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.get("/api/repo/file", repoGuard, async (req, res) => {
+    try { res.json(await repo.readFile(String(req.query.path || ""))); }
+    catch (e) { res.status(400).json({ error: e.message }); }
+  });
+
+  app.get("/api/repo/grep", repoGuard, async (req, res) => {
+    try { res.json({ hits: await repo.grep(String(req.query.q || "")) }); }
+    catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.get("/api/repo/log", repoGuard, async (req, res) => {
+    try { res.json({ commits: await repo.log(Number(req.query.n) || 10) }); }
+    catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.get("/api/repo/digest", repoGuard, async (req, res) => {
+    try { res.json({ text: digestProvider ? await digestProvider() : "" }); }
+    catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.get("/api/analysis", repoGuard, async (req, res) => {
+    try { res.json(analysisProvider ? await analysisProvider() : {}); }
+    catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
   // 静态托管仓库根，但屏蔽点文件（.git 等）与 sidecar 自身（源码/数据库）。
   // 必须对解码后的路径判断——express.static 内部会解码百分号编码。
   app.use((req, res, next) => {
@@ -88,19 +124,40 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const llm = new SidecarLLM();
   const parser = new Parser({ timeout: 10000 });
 
+  let repo = null;
+  let repoReason = "未配置 repoPath（见 config.example.json）";
+  if (cfg.repoPath) {
+    try {
+      const { createRepoService } = await import("./repo.js");
+      repo = createRepoService(cfg.repoPath);
+      repoReason = null;
+    } catch (e) {
+      repoReason = `repoPath 无效：${e.message}`;
+    }
+  }
+
   const rssReason = !llm.enabled
     ? "未配置 SIDECAR_API_KEY / SIDECAR_MODEL（见 .env.example）"
     : cfg.feeds.length === 0
       ? "config.json 未配置 feeds（见 config.example.json）"
       : null;
   const status = {
-    collectors: { rss: { enabled: !rssReason, lastRun: null, lastResult: null, reason: rssReason } }
+    collectors: { rss: { enabled: !rssReason, lastRun: null, lastResult: null, reason: rssReason } },
+    repo: { enabled: !!repo, path: cfg.repoPath || "", reason: repoReason }
   };
 
-  const app = buildApp({ eventStore, policyStore, status });
+  const { analyzeRepo } = await import("./analysis.js");
+  const { repoDigest } = await import("./digest.js");
+  const app = buildApp({
+    eventStore, policyStore, status, repo,
+    analysisProvider: repo ? () => analyzeRepo(repo) : null,
+    digestProvider: repo ? () => repoDigest(repo, { maxCommits: cfg.repoDigestMaxCommits }) : null
+  });
   app.listen(cfg.port, "127.0.0.1", () => {
     console.log(`sidecar 运行中：http://127.0.0.1:${cfg.port}（办公室页面也从这里打开）`);
     if (rssReason) console.log(`⚠️ RSS 采集器未启用：${rssReason}`);
+    if (repoReason) console.log(`ℹ️ 代码仓库未挂载：${repoReason}`);
+    else console.log(`📂 已挂载只读代码仓库：${cfg.repoPath}`);
   });
 
   async function rssTick() {
