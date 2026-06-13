@@ -21,7 +21,7 @@ m1.add("听到 王磊 说：「数据库索引要优化」", { importance: 4, da
 m1.add("市场动态：竞品涨价了", { importance: 7, day: 1, time: "09:00" });
 m1.add("我说：「这个需求很简单」", { importance: 2, day: 1, time: "11:00" });
 m2.add("今天天气不错", { importance: 2, day: 1, time: "09:00" });
-const r = m1.retrieve("竞品 市场 价格", 2);
+const r = await m1.retrieve("竞品 市场 价格", 2);
 console.log("检索结果:", r);
 if (!r[0].includes("竞品")) throw new Error("retrieval relevance failed");
 if (m2.items.length !== 1) throw new Error("memory not isolated!");
@@ -112,7 +112,30 @@ mt.add("第十天的新事", { importance: 5, day: 10, time: "09:00" });
 const ml = mt.items;
 if (!(ml[1].t > ml[0].t)) throw new Error("模拟时间戳 t 应随天数递增");
 if (ml[0].t !== 1 * 1440 + 540) throw new Error("t 应为 day*1440 + 分钟数");
-const r2 = mt.retrieve("事", 2);
+const r2 = await mt.retrieve("事", 2);
 if (!r2[0].includes("第十天")) throw new Error("较新的记忆应因 recency 排在前");
 console.log("模拟时间 recency 验证 ✓");
+
+// ---- 语义检索：注入 embedder 后用余弦相似度 ----
+const ms = new MemoryStream("semantic-test");
+const VECS = {
+  "我们要控制带宽成本": [1, 0, 0],
+  "最近流量费用涨得厉害": [0.9, 0.1, 0],
+  "今天午饭吃什么": [0, 0, 1]
+};
+ms.add("我们要控制带宽成本", { importance: 4, day: 1, time: "10:00" });
+ms.add("最近流量费用涨得厉害", { importance: 4, day: 1, time: "10:05" });
+ms.add("今天午饭吃什么", { importance: 4, day: 1, time: "10:10" });
+ms.setEmbedder(async (texts) => texts.map(t => VECS[t] || [0, 0, 0]));
+const sem = await ms.retrieve("我们要控制带宽成本", 2);
+if (!sem.some(s => s.includes("流量费用涨"))) {
+  throw new Error("语义检索应把'流量费用涨'召回（与'带宽成本'语义近），bigram 做不到");
+}
+if (sem.some(s => s.includes("午饭"))) throw new Error("语义无关的'午饭'不应进 top2");
+
+const ms2 = new MemoryStream("fallback-test");
+ms2.add("竞品涨价了", { importance: 5, day: 1, time: "09:00" });
+const fb = await ms2.retrieve("竞品 价格", 1);
+if (!fb[0].includes("竞品")) throw new Error("无 embedder 应回退 bigram");
+console.log("语义检索 + 回退验证 ✓");
 console.log("ALL WORLD TESTS PASSED");

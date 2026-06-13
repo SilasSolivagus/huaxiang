@@ -191,16 +191,18 @@ export class Director {
     };
 
     if (this.llm?.available && agent.memory) {
-      this.llm.speak({
-        persona: agent.persona,
-        company: this.world?.companyBrief(),
-        policies: this.feed?.activePolicies() ?? [],
-        memories: agent.memory.retrieve(scene, 6),
-        scene,
-        transcript: transcript.slice(-6)
-      }).then(text => {
+      agent.memory.retrieve(scene, 6).then(memories =>
+        this.llm.speak({
+          persona: agent.persona,
+          company: this.world?.companyBrief(),
+          policies: this.feed?.activePolicies() ?? [],
+          memories,
+          scene,
+          transcript: transcript.slice(-6)
+        })
+      ).then(text => {
         finish(text || fallback, !!text);
-      });
+      }).catch(() => finish(fallback, false));
     } else {
       finish(fallback, false);
     }

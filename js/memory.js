@@ -62,11 +62,26 @@ function bigrams(s) {
   return out;
 }
 
+function cosineSim(a, b) {
+  let dot = 0, na = 0, nb = 0;
+  const n = Math.min(a.length, b.length);
+  for (let i = 0; i < n; i++) { dot += a[i] * b[i]; na += a[i] * a[i]; nb += b[i] * b[i]; }
+  if (na === 0 || nb === 0) return 0;
+  return dot / (Math.sqrt(na) * Math.sqrt(nb));
+}
+
+function fmt(s) {
+  const m = s.m || s;
+  return `（第${m.day}天${m.time ? " " + m.time : ""}）${m.c}`;
+}
+
 export class MemoryStream {
   constructor(personaId) {
     this.id = personaId;
     this.items = loadAll()[personaId] || [];
     streams.set(personaId, this);
+    this.embedder = null;        // (texts:string[]) => Promise<number[][]|null>
+    this._vec = new WeakMap();   // item -> 向量（内存缓存，不持久化）
   }
 
   /**
@@ -94,6 +109,8 @@ export class MemoryStream {
     scheduleSave();
   }
 
+  setEmbedder(fn) { this.embedder = fn; }
+
   /** 最近 n 条（给 UI 展示） */
   recent(n = 5) {
     return this.items.slice(-n).reverse();
@@ -101,24 +118,45 @@ export class MemoryStream {
 
   /**
    * 检索与 query 最相关的 k 条记忆（重要度 + 时近性 + 相关性）。
-   * 返回格式化好的字符串数组。
+   * 返回格式化好的字符串数组。注入 embedder 时用余弦语义检索，否则回退 bigram。
    */
-  retrieve(query, k = 6) {
+  async retrieve(query, k = 6) {
     if (this.items.length === 0) return [];
-    const q = bigrams(query);
     const newestT = this.items.reduce((mx, m) => Math.max(mx, m.t ?? 0), 0);
-    const scored = this.items.map(m => {
-      const ageDays = (newestT - (m.t ?? 0)) / DAY_SPAN_MIN;
-      const recency = Math.pow(0.6, ageDays);   // 每过一个模拟日衰减到 0.6
-      let relevance = 0;
+    const recencyOf = m => Math.pow(0.6, (newestT - (m.t ?? 0)) / DAY_SPAN_MIN);
+    const cand = this.items.slice(-150);   // 候选：最近 150 条（控 embedding 成本）
+
+    // 尝试语义检索
+    if (this.embedder) {
+      try {
+        const need = cand.filter(m => !this._vec.has(m));
+        const toEmbed = [query, ...need.map(m => m.c)];
+        const vecs = await this.embedder(toEmbed);
+        if (vecs && vecs.length === toEmbed.length) {
+          const qv = vecs[0];
+          need.forEach((m, i) => this._vec.set(m, vecs[i + 1]));
+          const scored = cand.map(m => {
+            const rel = cosineSim(qv, this._vec.get(m) || []);   // 0~1
+            return { m, score: m.imp * 0.5 + recencyOf(m) * 2 + rel * 5 };
+          });
+          scored.sort((a, b) => b.score - a.score);
+          return scored.slice(0, k).map(fmt);
+        }
+      } catch (e) {
+        // 落空 → 回退 bigram
+      }
+    }
+
+    // 回退：bigram 字面相关
+    const q = bigrams(query);
+    const scored = cand.map(m => {
+      let rel = 0;
       const mb = bigrams(m.c);
-      for (const g of q) if (mb.has(g)) relevance++;
-      return { m, score: m.imp * 0.7 + recency * 3 + Math.min(relevance, 6) * 0.8 };
+      for (const g of q) if (mb.has(g)) rel++;
+      return { m, score: m.imp * 0.7 + recencyOf(m) * 3 + Math.min(rel, 6) * 0.8 };
     });
     scored.sort((a, b) => b.score - a.score);
-    return scored.slice(0, k).map(({ m }) =>
-      `（第${m.day}天${m.time ? " " + m.time : ""}）${m.c}`
-    );
+    return scored.slice(0, k).map(fmt);
   }
 
   /** 给每日反思用的原始素材：今天的记忆摘录 */
