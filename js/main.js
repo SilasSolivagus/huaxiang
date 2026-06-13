@@ -144,6 +144,7 @@ feed.onStatus = on => {
 };
 feed.connect().then(ok => {
   if (!ok) return;
+  director.refreshRepoState();   // 开局补摄入真实仓库指标与摘要（构造时 feed 尚未连上）
   log("📡 已连接本地数据服务，真实市场动态将实时进入办公室", "log-meeting");
   // 开场把积压的真实事件（最多 2 条）作为突发新闻陆续放出
   feed.takeEvents(2).forEach((ev, i) => {
@@ -330,7 +331,7 @@ function renderDashboard() {
   dash.metrics.innerHTML =
     metric("日活", m.dau.toLocaleString()) +
     metric("满意度", `${m.sat} 分`, m.sat < 60 ? "bad" : m.sat > 80 ? "good" : "") +
-    metric("Bug", `${m.bugs} 个`, m.bugs > 22 ? "bad" : m.bugs < 8 ? "good" : "") +
+    metric(world.bugsReal ? "Bug📂" : "Bug", `${m.bugs} 个`, m.bugs > 22 ? "bad" : m.bugs < 8 ? "good" : "") +
     metric("服务器", m.serverOk ? "正常" : "故障", m.serverOk ? "good" : "bad") +
     metric("现金跑道", `${m.runway} 个月`, m.runway < 6 ? "bad" : "");
   dash.events.innerHTML = world.todayEvents
