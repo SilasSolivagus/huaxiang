@@ -320,6 +320,40 @@ export class Director {
     }
   }
 
+  /**
+   * 多轮讨论的一轮发言（仿 speakSmart，但回调带 done 让调用方决定是否继续）。
+   * 返回 Promise 便于测试 await。无 llm 时说 fallback、done=false。
+   */
+  converseTurn(agent, scene, fallback, { radius = HEAR_RADIUS_TALK, importance = 4, logCls = "", transcript = [], onTurn = null } = {}) {
+    const finish = (text, isAI, done) => {
+      if (text) {
+        agent.say(text, isAI ? 5 : 4);
+        this.log(`${isAI ? "✨ " : ""}${agent.persona.name}：${text}`, logCls);
+        this.broadcastHearing(agent, text, radius, importance);
+        if (logCls === "log-meeting" || logCls === "log-collab") {
+          this.todayHighlights.push(`${agent.persona.name}：${text}`);
+          if (this.todayHighlights.length > 40) this.todayHighlights.shift();
+        }
+      }
+      onTurn?.(text, done);
+    };
+    if (this.llm?.available && agent.memory) {
+      return agent.memory.retrieve(scene, 6).then(memories =>
+        this.llm.converseTurn({
+          persona: agent.persona,
+          company: this.world?.companyBrief(),
+          policies: this.feed?.activePolicies() ?? [],
+          memories, scene, transcript: transcript.slice(-6)
+        })
+      ).then(res => {
+        const r = res || {};
+        finish(r.utterance || fallback, !!r.utterance, !!r.done);
+      }).catch(() => finish(fallback, false, false));
+    }
+    finish(fallback, false, false);
+    return Promise.resolve();
+  }
+
   // ---------- 主更新 ----------
 
   update(dt) {
@@ -464,19 +498,28 @@ export class Director {
       if (this.simTime < st.next || st.pending) continue;
       const crew = this.crewInZone(zone);
       if (crew.length === 0) continue;
-      const speaker = crew[st.idx % crew.length];
-      st.idx++;
+      if (!st.done) st.done = new Set();
+      if (st.done.size >= crew.length) continue;   // 全员都表示没有补充，会议安静收尾
+      // 轮转挑下一个还没说"完"、且不忙的人
+      let speaker = null, tries = 0;
+      while (tries < crew.length) {
+        const cand = crew[st.idx % crew.length];
+        st.idx++;
+        tries++;
+        if (!st.done.has(cand.persona.id) && !cand.isBusy) { speaker = cand; break; }
+      }
+      if (!speaker) continue;
       st.next = this.simTime + 5.5 + Math.random() * 3;
-      if (speaker.isBusy) continue;
       st.pending = true;
       const fallback = pick(speaker.persona.lines.meeting);
-      this.speakSmart(speaker, this.meetingScene(this.currentPhase, zone), fallback, {
+      this.converseTurn(speaker, this.meetingScene(this.currentPhase, zone), fallback, {
         radius: HEAR_RADIUS_MEETING,
         importance: 4,
         logCls: "log-meeting",
         transcript: st.transcript,
-        onDone: (text) => {
+        onTurn: (text, done) => {
           st.transcript.push(`${speaker.persona.name}：${text}`);
+          if (done) st.done.add(speaker.persona.id);
           st.pending = false;
         }
       });
@@ -533,6 +576,7 @@ export class Director {
 
     this.collabBusy.add(visitor.persona.id);
     this.collabBusy.add(host.persona.id);
+    const startDay = this.day;   // 跨天/相位切换后悬挂的 converse 链据此丢弃，防"复活"到新一天
 
     visitor.setActivity(`去找 ${host.persona.name} 讨论`);
     this.log(`🤝 ${visitor.persona.name} 去找 ${host.persona.name} 协作讨论`, "log-collab");
@@ -550,25 +594,15 @@ export class Director {
     const sceneBase = `工位旁的工作讨论：${visitor.persona.name} 走到 ${host.persona.name} 的工位。` +
       (planTopic ? `${visitor.persona.name}今天本就计划找人聊「${planTopic}」。` : "") +
       `结合你记得的事情聊一个具体话题。`;
-    const turn = (agent, fallbackPool) => {
-      this.speakSmart(agent, sceneBase + codeNote, pick(fallbackPool), {
-        radius: HEAR_RADIUS_TALK,
-        importance: 4,
-        logCls: "log-collab",
-        transcript: tx,
-        onDone: (text) => tx.push(`${agent.persona.name}：${text}`)
-      });
-    };
+    // 多轮 converse：每轮发言者自行决定是否说完，上限 6 轮（无 llm 回退定轮台词，3 轮收尾）
+    const maxTurns = this.llm?.available ? 6 : 3;
+    const speakers = [visitor, host];
+    const closers = ["明白了，我去改！", "好，就这么定", "这个思路可以，搞起", "OK，同步完毕"];
+    let turnNo = 0;
 
-    this.after(4, () => {
-      host.faceToward(desk.standSpot.x, desk.standSpot.z);
-      host.setActivity(`和 ${visitor.persona.name} 讨论中`);
-      visitor.setActivity(`和 ${host.persona.name} 讨论中`);
-      turn(visitor, visitor.persona.lines.collab);
-    });
-    this.after(10, () => turn(host, host.persona.lines.collab));
-    this.after(16, () => turn(visitor, ["明白了，我去改！", "好，就这么定", "这个思路可以，搞起", "OK，同步完毕"]));
-    this.after(20, () => {
+    const finishCollab = () => {
+      // 已跨天或 collabBusy 已被相位切换/日终清空：这是悬挂链的迟到回调，丢弃，别动旧工位/重复计 bug
+      if (this.day !== startDay || !this.collabBusy.has(visitor.persona.id)) return;
       if (this.currentPhase?.type === "work") {
         visitor.setActivity("在工位专注工作");
         host.setActivity("在工位专注工作");
@@ -585,6 +619,33 @@ export class Director {
       this.todayRecord.collabs.push({ visitor: visitor.persona.name, host: host.persona.name, bugFixed });
       this.collabBusy.delete(visitor.persona.id);
       this.collabBusy.delete(host.persona.id);
+    };
+
+    const runConverseTurn = () => {
+      // 已跨天或 collabBusy 已清：丢弃悬挂的 converse 链，不再发言/排程
+      if (this.day !== startDay || !this.collabBusy.has(visitor.persona.id)) return;
+      const speaker = speakers[turnNo % 2];
+      const isLast = turnNo >= maxTurns - 1;
+      const fallback = isLast ? pick(closers) : pick(speaker.persona.lines.collab);
+      this.converseTurn(speaker, sceneBase + codeNote, fallback, {
+        radius: HEAR_RADIUS_TALK,
+        importance: 4,
+        logCls: "log-collab",
+        transcript: tx,
+        onTurn: (text, done) => {
+          tx.push(`${speaker.persona.name}：${text}`);
+          turnNo++;
+          if (done || turnNo >= maxTurns) this.after(4, finishCollab);
+          else this.after(4.5 + Math.random() * 2.5, runConverseTurn);
+        }
+      });
+    };
+
+    this.after(4, () => {
+      host.faceToward(desk.standSpot.x, desk.standSpot.z);
+      host.setActivity(`和 ${visitor.persona.name} 讨论中`);
+      visitor.setActivity(`和 ${host.persona.name} 讨论中`);
+      runConverseTurn();
     });
   }
 
@@ -785,7 +846,7 @@ export class Director {
 }
 
 function freshMeet() {
-  return { idx: 0, next: 0, pending: false, transcript: [] };
+  return { idx: 0, next: 0, pending: false, transcript: [], done: new Set() };
 }
 
 function freshRecord() {

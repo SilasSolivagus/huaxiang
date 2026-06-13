@@ -12,6 +12,7 @@ import { normalizeMarketReaction } from "./cognition/market.js";
 import { normalizePlan } from "./cognition/plan.js";
 import { parseQuestions, parseInsight } from "./cognition/reflect.js";
 import { parseReaction } from "./cognition/react.js";
+import { parseTurn } from "./cognition/converse.js";
 
 const ERROR_COOLDOWN_MS = 60000;
 const USAGE_INTERVALS = { economy: 999999999, standard: 4500, immersive: 2200 };
@@ -338,6 +339,38 @@ export class LLMClient {
         return parseReaction(raw);
       } catch (e) {
         console.warn("突发反应生成失败：", e.message || e);
+        this.lastError = String(e.message || e);
+        this.cooldownUntil = Date.now() + ERROR_COOLDOWN_MS;
+        return null;
+      }
+    });
+  }
+
+  /**
+   * 多轮讨论的一轮发言：基于记忆与已说过的话，推进讨论并自行决定是否说完了。
+   * @param {object} opts { persona, company, policies, memories, scene, transcript }
+   * @returns {Promise<{utterance,done}|null>}
+   */
+  async converseTurn({ persona, company, policies = [], memories = [], scene, transcript = [] }) {
+    if (!this.available) return null;
+    return this.enqueue(async () => {
+      try {
+        const system =
+          `你在一个办公室模拟中扮演「${persona.name}」（${persona.role}）。性格：${persona.personality || "暂无"}。` +
+          (company ? `你所在公司：${company}\n` : "") +
+          (policies.length ? `现行公司政策（你的发言须与之相符）：\n${policies.map(p => "- " + p).join("\n")}\n` : "") +
+          `这是一场多轮讨论，现在轮到你。基于你的记忆和刚听到的话，说一句推进讨论的话（≤40字、口语、符合你的性格）；` +
+          `如果你觉得该说的都说完了、没什么要补充，把 done 设为 true。只输出 JSON：{"utterance":"你这一句话","done":true或false}。不要其他文字。`;
+        const user =
+          (memories.length ? `你记得的相关事情：\n${memories.map(m => "- " + m).join("\n")}\n\n` : "") +
+          `当前场景：${scene}\n` +
+          (transcript.length ? `刚刚的对话：\n${transcript.join("\n")}\n` : "") +
+          `\n现在轮到你。`;
+        const raw = await this.chatRaw(system, user, 256);
+        this.lastError = null;
+        return parseTurn(raw);
+      } catch (e) {
+        console.warn("多轮发言生成失败：", e.message || e);
         this.lastError = String(e.message || e);
         this.cooldownUntil = Date.now() + ERROR_COOLDOWN_MS;
         return null;
