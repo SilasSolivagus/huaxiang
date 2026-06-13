@@ -498,19 +498,28 @@ export class Director {
       if (this.simTime < st.next || st.pending) continue;
       const crew = this.crewInZone(zone);
       if (crew.length === 0) continue;
-      const speaker = crew[st.idx % crew.length];
-      st.idx++;
+      if (!st.done) st.done = new Set();
+      if (st.done.size >= crew.length) continue;   // 全员都表示没有补充，会议安静收尾
+      // 轮转挑下一个还没说"完"、且不忙的人
+      let speaker = null, tries = 0;
+      while (tries < crew.length) {
+        const cand = crew[st.idx % crew.length];
+        st.idx++;
+        tries++;
+        if (!st.done.has(cand.persona.id) && !cand.isBusy) { speaker = cand; break; }
+      }
+      if (!speaker) continue;
       st.next = this.simTime + 5.5 + Math.random() * 3;
-      if (speaker.isBusy) continue;
       st.pending = true;
       const fallback = pick(speaker.persona.lines.meeting);
-      this.speakSmart(speaker, this.meetingScene(this.currentPhase, zone), fallback, {
+      this.converseTurn(speaker, this.meetingScene(this.currentPhase, zone), fallback, {
         radius: HEAR_RADIUS_MEETING,
         importance: 4,
         logCls: "log-meeting",
         transcript: st.transcript,
-        onDone: (text) => {
+        onTurn: (text, done) => {
           st.transcript.push(`${speaker.persona.name}：${text}`);
+          if (done) st.done.add(speaker.persona.id);
           st.pending = false;
         }
       });
