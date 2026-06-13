@@ -82,6 +82,7 @@ export class MemoryStream {
     streams.set(personaId, this);
     this.embedder = null;        // (texts:string[]) => Promise<number[][]|null>
     this._vec = new WeakMap();   // item -> 向量（内存缓存，不持久化）
+    this._seq = this.items.reduce((mx, it) => Math.max(mx, it.id || 0), 0);
   }
 
   /**
@@ -91,7 +92,8 @@ export class MemoryStream {
    */
   add(content, opts = {}) {
     if (!content) return;
-    this.items.push({
+    const item = {
+      id: ++this._seq,
       c: String(content).slice(0, 120),
       imp: opts.importance ?? 3,
       type: opts.type || "obs",
@@ -99,7 +101,9 @@ export class MemoryStream {
       time: opts.time || "",
       t: simMinutes(opts.day ?? 0, opts.time || ""),
       at: Date.now()
-    });
+    };
+    if (Array.isArray(opts.evidence) && opts.evidence.length) item.evidence = opts.evidence.slice(0, 5);
+    this.items.push(item);
     if (this.items.length > MAX_ITEMS) {
       // 优先丢弃旧的低重要度记忆
       this.items.sort((a, b) => a.at - b.at);
