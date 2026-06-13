@@ -8,6 +8,7 @@
 // 内置串行队列 + 限流 + 出错冷却：不可用时返回 null，调用方回退内置台词。
 
 import { normalizeMinutes } from "./cognition/minutes.js";
+import { normalizeMarketReaction } from "./cognition/market.js";
 
 const ERROR_COOLDOWN_MS = 60000;
 const USAGE_INTERVALS = { economy: 999999999, standard: 4500, immersive: 2200 };
@@ -214,6 +215,38 @@ export class LLMClient {
         return normalizeMinutes(raw);
       } catch (e) {
         console.warn("会议纪要生成失败：", e.message || e);
+        this.lastError = String(e.message || e);
+        this.cooldownUntil = Date.now() + ERROR_COOLDOWN_MS;
+        return null;
+      }
+    });
+  }
+
+  /**
+   * 市场反应模拟：模型扮演"市场"，根据团队当日行为与产品状态输出结构化反应。
+   * @param {object} opts { company, day, metrics, shipped: string[], realEvents: string[], policies: string[] }
+   * @returns {Promise<{deltas,reasons,feedback,competitorMove}|null>} 失败/不可用返回 null（调用方回退纯规则）
+   */
+  async marketReaction({ company, day, metrics, shipped = [], realEvents = [], policies = [] }) {
+    if (!this.available) return null;
+    return this.enqueue(async () => {
+      try {
+        const system =
+          (company ? `公司背景：${company}\n` : "") +
+          `你扮演"市场"。根据团队第 ${day} 天的动作和产品现状，给出当天市场的真实反应。` +
+          `只输出 JSON：{"deltas":{"dau":整数,"sat":-10~10,"bugs":-20~20,"runway":-2~2},` +
+          `"reasons":["指标为何这么变"],"feedback":["应用商店/社交/客服口吻的真实反馈片段"],"competitorMove":"竞品可能的跟进或 null"}。` +
+          `deltas 是在当前指标上的增量、要克制合理（dau 增量不超过现日活的 10%）；feedback 2~4 条、每条像真实用户/客户的一句话；没有就空数组/null。不要输出 JSON 以外的任何文字。`;
+        const user =
+          `当前产品数据：${metrics}\n` +
+          (shipped.length ? `今天上线的改进：\n${shipped.map(s => "- " + s).join("\n")}\n` : "今天没有新改进上线。\n") +
+          (realEvents.length ? `当天市场动态：\n${realEvents.map(e => "- " + e).join("\n")}\n` : "") +
+          (policies.length ? `现行政策：\n${policies.map(p => "- " + p).join("\n")}\n` : "");
+        const raw = await this.chatRaw(system, user, 700);
+        this.lastError = null;
+        return normalizeMarketReaction(raw);
+      } catch (e) {
+        console.warn("市场反应生成失败：", e.message || e);
         this.lastError = String(e.message || e);
         this.cooldownUntil = Date.now() + ERROR_COOLDOWN_MS;
         return null;
