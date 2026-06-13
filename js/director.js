@@ -54,6 +54,7 @@ export class Director {
 
     this.todayRecord = freshRecord();   // 当日事实累积（给看板）
     this.todayHighlights = [];          // 当日会议/协作发言摘录（给看板 AI）
+    this.repoDigest = null;          // 每日仓库摘要（来自 sidecar）
 
     this.day = world?.day ?? 1;
     this.clockMin = DAY_START;
@@ -140,6 +141,17 @@ export class Director {
         this.remember(a, `市场动态：${ev.text}`, 7, "world");
       }
     }
+  }
+
+  /** 从 feed 摄入真实仓库状态：分析指标喂给世界模型，摘要存下来注入会议 */
+  async refreshRepoState() {
+    if (!this.feed) return;
+    try {
+      const a = await this.feed.analysis?.();
+      if (a && this.world) this.world.applyAnalysis(a);
+      const d = await this.feed.repoDigest?.();
+      if (d) this.repoDigest = d;
+    } catch { /* sidecar 不可用：保持纯模拟，不注入 */ }
   }
 
   /** 真实市场事件白天实时到达：作为突发新闻插入当前模拟日 */
@@ -235,7 +247,7 @@ export class Director {
       this.todayRecord = freshRecord();
       this.todayHighlights = [];
       this.log(`☀️ 第 ${this.day} 天开始了`, "log-meeting");
-      this.broadcastDaily();
+      this.refreshRepoState().then(() => this.broadcastDaily());
     }
 
     // 执行到期的定时任务
@@ -335,7 +347,8 @@ export class Director {
     const goal = phase.type === "standup"
       ? "产研团队每日站会，每人同步进展、技术/产品计划和遇到的问题"
       : "产研团队项目评审会，讨论产品现状、市场动态、技术风险和下一步计划";
-    return `${goal}。今天是第 ${this.day} 个工作日。`;
+    const base = `${goal}。今天是第 ${this.day} 个工作日。`;
+    return this.repoDigest ? `${base}\n代码仓库近况：${this.repoDigest}` : base;
   }
 
   runMeetingTalk() {

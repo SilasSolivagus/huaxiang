@@ -150,4 +150,22 @@ const before = w5.metrics.bugs;
 if (w5.applyAnalysis(null) !== false) throw new Error("null 应返回 false");
 if (w5.metrics.bugs !== before) throw new Error("非法输入不应改指标");
 console.log("真实分析指标接入验证 ✓");
+// ---- director 摄入仓库状态 + 产研会议注入摘要 ----
+class RepoStubFeed {
+  takeEvents() { return []; }
+  activePolicies() { return []; }
+  async analysis() { return { todoCount: 17, fileCount: 50, hotFiles: [{ path: "js/director.js", lines: 400 }] }; }
+  async repoDigest() { return "最近提交（2 条）：\n  - abc 加了限速逻辑\n  - def 修了上传 bug"; }
+  async repoGrep() { return null; }
+}
+const w6 = new World(DEFAULT_COMPANY);
+const d6 = new Director(PERSONAS.slice(0, 3).map((p, i) => new StubAgent(p, "r" + i)), office, () => {}, null, w6, new RepoStubFeed());
+await d6.refreshRepoState();
+if (w6.metrics.bugs !== 17) throw new Error("refreshRepoState 应把真实 todoCount 喂给 world");
+if (d6.repoDigest === null) throw new Error("refreshRepoState 应存下仓库摘要");
+const sc = d6.meetingScene({ type: "review" }, "rd");
+if (!sc.includes("限速逻辑")) throw new Error("产研会议场景应注入仓库摘要");
+const scOps = d6.meetingScene({ type: "review" }, "ops");
+if (scOps.includes("限速逻辑")) throw new Error("运营会议不应注入代码摘要");
+console.log("director 仓库状态注入验证 ✓");
 console.log("ALL WORLD TESTS PASSED");
