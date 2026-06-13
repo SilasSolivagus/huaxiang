@@ -245,6 +245,45 @@ document.getElementById("profile-close").addEventListener("click", () => {
   profileCard.classList.add("hidden");
 });
 
+// ---------- 董事长面谈 ----------
+const talkBtn = document.getElementById("profile-talk-btn");
+const talkBox = document.getElementById("profile-talk-box");
+const talkInput = document.getElementById("profile-talk-input");
+
+talkBtn.addEventListener("click", () => {
+  if (!selectedAgent) return;
+  talkBox.classList.remove("hidden");
+  talkInput.focus();
+  const p = selectedAgent.group.position;
+  chairman.goTo({ x: p.x + 1.2, z: p.z + 1.2 }, () => chairman.faceToward(p.x, p.z));
+});
+
+function sendInterview() {
+  const text = talkInput.value.trim();
+  if (!text || !selectedAgent) return;
+  chairman.say(text, 5);
+  director.interview(selectedAgent, text);
+  talkInput.value = "";
+}
+document.getElementById("profile-talk-send").addEventListener("click", sendInterview);
+talkInput.addEventListener("keydown", e => { if (e.key === "Enter") sendInterview(); });
+
+document.getElementById("profile-close").addEventListener("click", () => {
+  talkBox.classList.add("hidden");
+});
+
+// ---------- 董事长全员讲话 ----------
+const cInput = document.getElementById("chairman-input");
+function sendBroadcast() {
+  const text = cInput.value.trim();
+  if (!text) return;
+  chairman.say(text, 5);
+  director.chairmanBroadcast(text);
+  cInput.value = "";
+}
+document.getElementById("chairman-send").addEventListener("click", sendBroadcast);
+cInput.addEventListener("keydown", e => { if (e.key === "Enter") sendBroadcast(); });
+
 // 选中人物的记忆流展示（隔离的可视化：每个人记得的事情各不相同）
 function renderMemories(a) {
   const box = document.getElementById("profile-memories");
