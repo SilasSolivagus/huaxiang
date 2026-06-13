@@ -138,4 +138,16 @@ ms2.add("竞品涨价了", { importance: 5, day: 1, time: "09:00" });
 const fb = await ms2.retrieve("竞品 价格", 1);
 if (!fb[0].includes("竞品")) throw new Error("无 embedder 应回退 bigram");
 console.log("语义检索 + 回退验证 ✓");
+// ---- 真实分析指标接入世界模型 ----
+const w5 = new World(DEFAULT_COMPANY);
+const applied = w5.applyAnalysis({ todoCount: 42, fileCount: 50, hotFiles: [{ path: "js/office.js", lines: 320 }, { path: "js/director.js", lines: 410 }] });
+if (applied !== true) throw new Error("applyAnalysis 应返回 true");
+if (w5.metrics.bugs !== 42) throw new Error("bugs 应取真实 todoCount");
+if (w5.bugsReal !== true) throw new Error("应标记 bugsReal");
+if (!w5.metricsSummary().includes("真实代码")) throw new Error("摘要应标注来自真实代码扫描");
+if (!w5.metricsSummary().includes("director.js")) throw new Error("摘要应含技术债热点文件");
+const before = w5.metrics.bugs;
+if (w5.applyAnalysis(null) !== false) throw new Error("null 应返回 false");
+if (w5.metrics.bugs !== before) throw new Error("非法输入不应改指标");
+console.log("真实分析指标接入验证 ✓");
 console.log("ALL WORLD TESTS PASSED");

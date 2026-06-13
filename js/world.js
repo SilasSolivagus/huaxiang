@@ -84,6 +84,8 @@ export class World {
         ? { dau: 860000, sat: 66, bugs: 27, serverOk: true, runway: 11 }
         : { dau: 1200, sat: 72, bugs: 14, serverOk: true, runway: 14 };
     }
+    this.bugsReal = false;
+    this.techDebt = [];
     this.todayEvents = [];
     this.generateEvents();
   }
@@ -180,9 +182,26 @@ export class World {
     return `${c.name}，${c.stage}，主营产品是${c.product}（${c.industry}赛道）。当前经营目标：${c.goal}。`;
   }
 
+  /** 摄入 sidecar 静态分析的真实指标：用真实 TODO 数替换虚构 Bug 数，记录技术债热点 */
+  applyAnalysis(a) {
+    if (!a || typeof a.todoCount !== "number") return false;
+    this.metrics.bugs = Math.max(0, Math.min(999, Math.round(a.todoCount)));
+    this.bugsReal = true;
+    this.techDebt = Array.isArray(a.hotFiles) ? a.hotFiles.slice(0, 3) : [];
+    this.clampMetrics();
+    this.save();
+    return true;
+  }
+
   /** 给 AI 和公告用的当日数据摘要 */
   metricsSummary() {
     const m = this.metrics;
-    return `今日产品数据：日活 ${m.dau.toLocaleString()}，用户满意度 ${m.sat} 分，待修 Bug ${m.bugs} 个，服务器${m.serverOk ? "运行正常" : "出现故障"}，现金还能支撑约 ${m.runway} 个月。`;
+    let s = `今日产品数据：日活 ${m.dau.toLocaleString()}，用户满意度 ${m.sat} 分，` +
+      `待修 Bug ${m.bugs} 个${this.bugsReal ? "（来自真实代码扫描）" : ""}，` +
+      `服务器${m.serverOk ? "运行正常" : "出现故障"}，现金还能支撑约 ${m.runway} 个月。`;
+    if (this.techDebt && this.techDebt.length) {
+      s += ` 技术债热点：${this.techDebt.map(f => f.path).join("、")}。`;
+    }
+    return s;
   }
 }
