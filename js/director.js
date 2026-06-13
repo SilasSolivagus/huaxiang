@@ -15,6 +15,7 @@
 
 import { DAILY_SCHEDULE } from "./personas.js";
 import { buildItems, composeAgentSummary } from "./board.js";
+import { minutesEmpty, minutesToText } from "./cognition/minutes.js";
 
 const MINUTES_PER_SECOND = 2.2;   // 1 秒现实时间 = 2.2 分钟模拟时间（1x 速度）
 const DAY_START = 9 * 60;          // 09:00
@@ -271,6 +272,8 @@ export class Director {
       this.currentPhase = null;
       this.tasks = [];
       this.collabBusy.clear();
+      // 会议纪要在「离开会议相位」时已收割（见 update 的相位切换钩子）；这里直接重置即可。
+      // 隐式契约：日程里每个会议相位后都跟一个非会议相位且早于 DAY_END——若将来把会议排到收尾，需在此先收割。
       this.meetState = { rd: freshMeet(), ops: freshMeet() };
       this.workSeat.clear();
       this.reflected = false;
@@ -293,6 +296,9 @@ export class Director {
       if (this.clockMin >= s.min) active = s;
     }
     if (!this.currentPhase || this.currentPhase.label !== active.label) {
+      if (this.currentPhase && (this.currentPhase.type === "standup" || this.currentPhase.type === "review")) {
+        this.finishMeetings(this.currentPhase);
+      }
       this.applyPhase(active);
     }
 
@@ -601,6 +607,43 @@ export class Director {
         }
       });
     }
+  }
+
+  // ---------- 会议纪要：离开会议相位时收割本场发言 ----------
+
+  /** 两个区分别根据本场发言记录生成结构化纪要。返回 Promise（便于测试 await）。 */
+  finishMeetings(phase) {
+    const jobs = [];
+    for (const zone of ZONES) {
+      const transcript = this.meetState[zone]?.transcript ?? [];
+      if (transcript.length < 2) continue;   // 实质讨论太少，不值得成文
+      jobs.push(this.runMeetingMinutes(zone, phase, transcript.slice()));
+    }
+    return Promise.all(jobs);
+  }
+
+  /** 调模型生成一区纪要 → 写产出物库 + 行动项进负责人记忆 + 日志。 */
+  runMeetingMinutes(zone, phase, transcript) {
+    if (!this.llm?.available) return Promise.resolve();
+    const day = this.day;
+    const scene = this.meetingScene(phase, zone);
+    return this.llm.minutes({ company: this.world?.companyBrief(), day, scene, transcript })
+      .then(m => {
+        if (minutesEmpty(m)) return;
+        this.feed?.writeArtifact?.({
+          type: "minutes", day, content: minutesToText(m),
+          meta: { zone, phase: phase.label, decisions: m.decisions, risks: m.risks, actionItems: m.actionItems }
+        });
+        const crew = this.crewInZone(zone);
+        for (const item of m.actionItems) {
+          const owner = item.owner ? this.findAgent(item.owner) : null;
+          if (owner && crew.includes(owner)) {
+            this.remember(owner, `行动项（${phase.label}）：${item.what}`, 7, "action");
+          }
+        }
+        this.log(`📋 ${phase.label}纪要：${m.decisions.length} 决议 / ${m.risks.length} 风险 / ${m.actionItems.length} 行动项`, "log-meeting");
+      })
+      .catch(() => {});
   }
 }
 

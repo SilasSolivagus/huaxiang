@@ -35,3 +35,32 @@ test("urlHash 稳定且区分大小写敏感的不同 URL", () => {
   assert.equal(urlHash("https://a.com/1"), urlHash("https://a.com/1"));
   assert.notEqual(urlHash("https://a.com/1"), urlHash("https://a.com/2"));
 });
+
+import { normalizeArtifact } from "../src/contracts.js";
+
+test("normalizeArtifact 补全默认值并生成 id", () => {
+  const a = normalizeArtifact({ type: "minutes", content: "今天决定上线限速优化" });
+  assert.match(a.id, /^art_/);
+  assert.equal(a.type, "minutes");
+  assert.equal(a.day, 0);
+  assert.equal(a.content, "今天决定上线限速优化");
+  assert.equal(a.meta, null);
+  assert.ok(a.ts > 1000000000000);
+});
+
+test("normalizeArtifact 拒绝空类型和空正文", () => {
+  assert.throws(() => normalizeArtifact({ type: "", content: "x" }));
+  assert.throws(() => normalizeArtifact({ type: "minutes", content: "  " }));
+  assert.throws(() => normalizeArtifact(null));
+});
+
+test("normalizeArtifact 保留 day / meta，截断超长正文与类型", () => {
+  const a = normalizeArtifact({ type: "minutes", day: 5, content: "决议X", meta: { zone: "rd", decisions: ["a"] } });
+  assert.equal(a.day, 5);
+  assert.deepEqual(a.meta, { zone: "rd", decisions: ["a"] });
+  const long = normalizeArtifact({ type: "x".repeat(80), content: "y".repeat(5000) });
+  assert.equal(long.type.length, 40);
+  assert.equal(long.content.length, 4000);
+  // 非对象 meta 归一化为 null
+  assert.equal(normalizeArtifact({ type: "t", content: "c", meta: "oops" }).meta, null);
+});

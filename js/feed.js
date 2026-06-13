@@ -153,6 +153,34 @@ export class Feed {
     } catch { return null; }
   }
 
+  /** 写一条产出物到 sidecar 产出物库；离线/失败静默返回 null */
+  async writeArtifact(data) {
+    if (!this.online || !data) return null;
+    try {
+      const res = await fetch("/api/artifacts", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(data)
+      });
+      if (!res.ok) return null;
+      return await res.json();
+    } catch { return null; }
+  }
+
+  /** 翻阅产出物，返回数组或 null（离线/失败） */
+  async readArtifacts({ type, day } = {}) {
+    if (!this.online) return null;
+    try {
+      const qs = new URLSearchParams();
+      if (type) qs.set("type", type);
+      if (day !== undefined && day !== null) qs.set("day", String(day));
+      const res = await fetch(`/api/artifacts?${qs.toString()}`);
+      if (!res.ok) return null;
+      const data = await res.json();
+      return Array.isArray(data.artifacts) ? data.artifacts : null;
+    } catch { return null; }
+  }
+
   ack(ids) {
     if (!this.online || !ids.length) return;
     fetch("/api/events/ack", {

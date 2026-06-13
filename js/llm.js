@@ -7,6 +7,8 @@
 //   openai    — OpenAI 兼容接口（DeepSeek、Kimi、通义、智谱等，填对应 baseUrl）
 // 内置串行队列 + 限流 + 出错冷却：不可用时返回 null，调用方回退内置台词。
 
+import { normalizeMinutes } from "./cognition/minutes.js";
+
 const ERROR_COOLDOWN_MS = 60000;
 const USAGE_INTERVALS = { economy: 999999999, standard: 4500, immersive: 2200 };
 
@@ -184,6 +186,34 @@ export class LLMClient {
           .slice(0, 6);
       } catch (e) {
         console.warn("当日简报生成失败：", e.message || e);
+        this.lastError = String(e.message || e);
+        this.cooldownUntil = Date.now() + ERROR_COOLDOWN_MS;
+        return null;
+      }
+    });
+  }
+
+  /**
+   * 会议纪要：根据一场会议的发言记录，提炼结构化纪要。
+   * @param {object} opts { company, day, scene, transcript: string[] }
+   * @returns {Promise<{decisions,risks,actionItems}|null>} 失败/不可用/无记录返回 null
+   */
+  async minutes({ company, day, scene, transcript = [] }) {
+    if (!this.available || transcript.length === 0) return null;
+    return this.enqueue(async () => {
+      try {
+        const system =
+          (company ? `公司背景：${company}\n` : "") +
+          `你是会议记录员。根据下面这场会议的发言记录，提炼结构化纪要。` +
+          `只输出 JSON，形如 {"decisions":["…"],"risks":["…"],"actionItems":[{"owner":"姓名","what":"待办"}]}。` +
+          `decisions=会上拍板的决定，risks=暴露的风险或隐患，actionItems=明确的待办（owner 必须是发言记录里出现过的人名）。` +
+          `每项不超过 40 字，各列最多 4 条，没有就给空数组。不要输出 JSON 以外的任何文字。`;
+        const user = `会议场景：${scene}\n这是第 ${day} 个工作日。\n\n发言记录：\n${transcript.join("\n")}`;
+        const raw = await this.chatRaw(system, user, 700);
+        this.lastError = null;
+        return normalizeMinutes(raw);
+      } catch (e) {
+        console.warn("会议纪要生成失败：", e.message || e);
         this.lastError = String(e.message || e);
         this.cooldownUntil = Date.now() + ERROR_COOLDOWN_MS;
         return null;
