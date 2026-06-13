@@ -105,4 +105,14 @@ for (let t = 0; t < 259; t += 0.1) d4.update(0.1);
 if (feed4.taken < 1) throw new Error("跨日应从 feed 取事件");
 if (!w4.todayEvents.some(e => e.real)) throw new Error("新一天应使用真实事件");
 console.log("Director × Feed 验证 ✓");
+// ---- 记忆 recency 用模拟时间（不受墙钟影响）----
+const mt = new MemoryStream("recency-test");
+mt.add("第一天的旧事", { importance: 5, day: 1, time: "09:00" });
+mt.add("第十天的新事", { importance: 5, day: 10, time: "09:00" });
+const ml = mt.items;
+if (!(ml[1].t > ml[0].t)) throw new Error("模拟时间戳 t 应随天数递增");
+if (ml[0].t !== 1 * 1440 + 540) throw new Error("t 应为 day*1440 + 分钟数");
+const r2 = mt.retrieve("事", 2);
+if (!r2[0].includes("第十天")) throw new Error("较新的记忆应因 recency 排在前");
+console.log("模拟时间 recency 验证 ✓");
 console.log("ALL WORLD TESTS PASSED");

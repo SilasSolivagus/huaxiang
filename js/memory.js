@@ -43,6 +43,17 @@ function scheduleSave() {
   }, 1500);
 }
 
+const DAY_SPAN_MIN = 1440;   // 把"第 N 天 HH:MM"折算成单调递增的模拟分钟数
+
+function simMinutes(day, time) {
+  let hm = 0;
+  if (typeof time === "string" && time.includes(":")) {
+    const [h, m] = time.split(":").map(Number);
+    hm = (h || 0) * 60 + (m || 0);
+  }
+  return (Number(day) || 0) * DAY_SPAN_MIN + hm;
+}
+
 /** 中文相关性：统计共享二元组（bigram）数量 */
 function bigrams(s) {
   const out = new Set();
@@ -71,6 +82,7 @@ export class MemoryStream {
       type: opts.type || "obs",
       day: opts.day ?? 0,
       time: opts.time || "",
+      t: simMinutes(opts.day ?? 0, opts.time || ""),
       at: Date.now()
     });
     if (this.items.length > MAX_ITEMS) {
@@ -94,10 +106,10 @@ export class MemoryStream {
   retrieve(query, k = 6) {
     if (this.items.length === 0) return [];
     const q = bigrams(query);
-    const newest = this.items[this.items.length - 1].at;
+    const newestT = this.items.reduce((mx, m) => Math.max(mx, m.t ?? 0), 0);
     const scored = this.items.map(m => {
-      const ageHours = (newest - m.at) / 3600000;
-      const recency = Math.pow(0.92, ageHours * 10);   // 模拟时间流速快，衰减放快
+      const ageDays = (newestT - (m.t ?? 0)) / DAY_SPAN_MIN;
+      const recency = Math.pow(0.6, ageDays);   // 每过一个模拟日衰减到 0.6
       let relevance = 0;
       const mb = bigrams(m.c);
       for (const g of q) if (mb.has(g)) relevance++;
