@@ -183,6 +183,36 @@ export class Director {
     }
   }
 
+  // ---------- 董事长化身：用户进入世界 ----------
+
+  /** 董事长在某位置开口：听力范围内的 Agent 记住（高权重） */
+  recordChairmanLine(text, pos, { radius = HEAR_RADIUS_TALK, importance = 8 } = {}) {
+    for (const a of this.agents) {
+      const op = a.group?.position;
+      let inRange = true;
+      if (pos && op) inRange = Math.hypot(pos.x - op.x, pos.z - op.z) <= radius;
+      if (inRange) this.remember(a, `董事长说：「${text}」`, importance, "chairman");
+    }
+  }
+
+  /** 单独面谈：把董事长的话写进对方（及近旁同事）记忆，并触发对方回应 */
+  interview(target, text, onReply = null) {
+    if (!target || !text) return;
+    this.log(`👔 董事长对 ${target.persona.name} 说：${text}`, "log-meeting");
+    this.recordChairmanLine(text, target.group?.position, { radius: HEAR_RADIUS_TALK, importance: 8 });
+    const scene = `董事长来到你面前单独面谈，刚对你说：「${text}」。请你以本人身份认真回应董事长。`;
+    this.speakSmart(target, scene, pick(target.persona.lines.meeting), {
+      radius: HEAR_RADIUS_TALK, importance: 6, logCls: "log-meeting", onDone: onReply
+    });
+  }
+
+  /** 对全员讲话（会议发言 / 公司级指令）：所有人高权重记住 */
+  chairmanBroadcast(text) {
+    if (!text) return;
+    this.log(`👔 董事长发言：${text}`, "log-meeting");
+    for (const a of this.agents) this.remember(a, `董事长说：「${text}」`, 8, "chairman");
+  }
+
   // ---------- 隔离式发言生成 ----------
 
   /**

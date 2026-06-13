@@ -174,4 +174,25 @@ if (codeRefNote([]) !== "") throw new Error("空数组应返回空串");
 const note = codeRefNote([{ file: "js/office.js", line: 120, text: "function buildOffice()" }]);
 if (!note.includes("js/office.js") || !note.includes("120")) throw new Error("便签应含 file:line");
 console.log("代码引用便签验证 ✓");
+// ---- 董事长化身：面谈 / 全员讲话 进入记忆并触发回应 ----
+const w7 = new World(DEFAULT_COMPANY);
+const ag7 = PERSONAS.slice(0, 3).map((p, i) => new StubAgent(p, "c" + i));
+const logs7 = [];
+const d7 = new Director(ag7, office, (m) => logs7.push(m), null, w7);
+let replied = null;
+d7.interview(ag7[0], "你们这季度最该解决的问题是什么？", (text) => { replied = text; });
+const mem0 = ag7[0].memory.items;
+const cl = mem0.find(m => m.c.includes("董事长说") && m.c.includes("最该解决"));
+if (!cl) throw new Error("面谈内容应进入对方记忆");
+if (cl.imp < 8) throw new Error("董事长的话应为高权重（>=8）");
+if (cl.type !== "chairman") throw new Error("应标记 type=chairman");
+if (replied === null) throw new Error("面谈应触发对方回应（onReply 回调）");
+if (!logs7.some(l => l.includes("👔"))) throw new Error("面谈应打日志");
+d7.chairmanBroadcast("从今天起，稳定性高于一切");
+for (const a of ag7) {
+  if (!a.memory.items.some(m => m.c.includes("稳定性高于一切") && m.imp >= 8)) {
+    throw new Error("全员讲话应进入每个人的高权重记忆");
+  }
+}
+console.log("董事长化身验证 ✓");
 console.log("ALL WORLD TESTS PASSED");
