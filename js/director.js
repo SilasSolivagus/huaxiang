@@ -584,25 +584,13 @@ export class Director {
     const sceneBase = `工位旁的工作讨论：${visitor.persona.name} 走到 ${host.persona.name} 的工位。` +
       (planTopic ? `${visitor.persona.name}今天本就计划找人聊「${planTopic}」。` : "") +
       `结合你记得的事情聊一个具体话题。`;
-    const turn = (agent, fallbackPool) => {
-      this.speakSmart(agent, sceneBase + codeNote, pick(fallbackPool), {
-        radius: HEAR_RADIUS_TALK,
-        importance: 4,
-        logCls: "log-collab",
-        transcript: tx,
-        onDone: (text) => tx.push(`${agent.persona.name}：${text}`)
-      });
-    };
+    // 多轮 converse：每轮发言者自行决定是否说完，上限 6 轮（无 llm 回退定轮台词，3 轮收尾）
+    const maxTurns = this.llm?.available ? 6 : 3;
+    const speakers = [visitor, host];
+    const closers = ["明白了，我去改！", "好，就这么定", "这个思路可以，搞起", "OK，同步完毕"];
+    let turnNo = 0;
 
-    this.after(4, () => {
-      host.faceToward(desk.standSpot.x, desk.standSpot.z);
-      host.setActivity(`和 ${visitor.persona.name} 讨论中`);
-      visitor.setActivity(`和 ${host.persona.name} 讨论中`);
-      turn(visitor, visitor.persona.lines.collab);
-    });
-    this.after(10, () => turn(host, host.persona.lines.collab));
-    this.after(16, () => turn(visitor, ["明白了，我去改！", "好，就这么定", "这个思路可以，搞起", "OK，同步完毕"]));
-    this.after(20, () => {
+    const finishCollab = () => {
       if (this.currentPhase?.type === "work") {
         visitor.setActivity("在工位专注工作");
         host.setActivity("在工位专注工作");
@@ -619,6 +607,31 @@ export class Director {
       this.todayRecord.collabs.push({ visitor: visitor.persona.name, host: host.persona.name, bugFixed });
       this.collabBusy.delete(visitor.persona.id);
       this.collabBusy.delete(host.persona.id);
+    };
+
+    const runConverseTurn = () => {
+      const speaker = speakers[turnNo % 2];
+      const isLast = turnNo >= maxTurns - 1;
+      const fallback = isLast ? pick(closers) : pick(speaker.persona.lines.collab);
+      this.converseTurn(speaker, sceneBase + codeNote, fallback, {
+        radius: HEAR_RADIUS_TALK,
+        importance: 4,
+        logCls: "log-collab",
+        transcript: tx,
+        onTurn: (text, done) => {
+          tx.push(`${speaker.persona.name}：${text}`);
+          turnNo++;
+          if (done || turnNo >= maxTurns) this.after(4, finishCollab);
+          else this.after(4.5 + Math.random() * 2.5, runConverseTurn);
+        }
+      });
+    };
+
+    this.after(4, () => {
+      host.faceToward(desk.standSpot.x, desk.standSpot.z);
+      host.setActivity(`和 ${visitor.persona.name} 讨论中`);
+      visitor.setActivity(`和 ${host.persona.name} 讨论中`);
+      runConverseTurn();
     });
   }
 
