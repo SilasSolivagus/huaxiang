@@ -104,6 +104,23 @@ export class Feed {
     return this.policies.filter(p => p.active).map(p => p.text);
   }
 
+  /** 文本批量转向量：在线则走 sidecar 本地模型，离线/失败返回 null（调用方回退 bigram） */
+  async embed(texts) {
+    if (!this.online || !texts || texts.length === 0) return null;
+    try {
+      const res = await fetch("/api/embed", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ texts })
+      });
+      if (!res.ok) return null;
+      const data = await res.json();
+      return Array.isArray(data.vectors) ? data.vectors : null;
+    } catch {
+      return null;
+    }
+  }
+
   ack(ids) {
     if (!this.online || !ids.length) return;
     fetch("/api/events/ack", {

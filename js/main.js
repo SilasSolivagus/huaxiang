@@ -125,6 +125,12 @@ const feed = new Feed();
 const board = new Board();
 director = new Director(agents, office, log, llm, world, feed, board);
 board.onUpdate = () => renderBoard();
+
+// 给每个 Agent 的记忆流接上 sidecar 本地 embedding（离线自动回退 bigram）
+for (const a of agents) {
+  if (a.memory) a.memory.setEmbedder(texts => feed.embed(texts));
+}
+
 feed.onBreaking = ev => director.injectBreakingNews(ev);
 feed.onPolicyChange = ch => director.announcePolicyChange(ch);
 feed.onStatus = on => {
