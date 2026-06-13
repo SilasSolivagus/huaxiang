@@ -26,6 +26,11 @@ CREATE TABLE IF NOT EXISTS policies(
   issued_ts INTEGER NOT NULL,
   active INTEGER NOT NULL DEFAULT 1
 );
+CREATE TABLE IF NOT EXISTS page_snapshots(
+  url_hash TEXT PRIMARY KEY,
+  content_hash TEXT NOT NULL,
+  ts INTEGER NOT NULL
+);
 `;
 
 export function openDb(path = ":memory:") {
