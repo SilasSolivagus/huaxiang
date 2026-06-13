@@ -320,6 +320,40 @@ export class Director {
     }
   }
 
+  /**
+   * 多轮讨论的一轮发言（仿 speakSmart，但回调带 done 让调用方决定是否继续）。
+   * 返回 Promise 便于测试 await。无 llm 时说 fallback、done=false。
+   */
+  converseTurn(agent, scene, fallback, { radius = HEAR_RADIUS_TALK, importance = 4, logCls = "", transcript = [], onTurn = null } = {}) {
+    const finish = (text, isAI, done) => {
+      if (text) {
+        agent.say(text, isAI ? 5 : 4);
+        this.log(`${isAI ? "✨ " : ""}${agent.persona.name}：${text}`, logCls);
+        this.broadcastHearing(agent, text, radius, importance);
+        if (logCls === "log-meeting" || logCls === "log-collab") {
+          this.todayHighlights.push(`${agent.persona.name}：${text}`);
+          if (this.todayHighlights.length > 40) this.todayHighlights.shift();
+        }
+      }
+      onTurn?.(text, done);
+    };
+    if (this.llm?.available && agent.memory) {
+      return agent.memory.retrieve(scene, 6).then(memories =>
+        this.llm.converseTurn({
+          persona: agent.persona,
+          company: this.world?.companyBrief(),
+          policies: this.feed?.activePolicies() ?? [],
+          memories, scene, transcript: transcript.slice(-6)
+        })
+      ).then(res => {
+        const r = res || {};
+        finish(r.utterance || fallback, !!r.utterance, !!r.done);
+      }).catch(() => finish(fallback, false, false));
+    }
+    finish(fallback, false, false);
+    return Promise.resolve();
+  }
+
   // ---------- 主更新 ----------
 
   update(dt) {
@@ -785,7 +819,7 @@ export class Director {
 }
 
 function freshMeet() {
-  return { idx: 0, next: 0, pending: false, transcript: [] };
+  return { idx: 0, next: 0, pending: false, transcript: [], done: new Set() };
 }
 
 function freshRecord() {
