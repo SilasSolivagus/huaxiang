@@ -31,6 +31,14 @@ CREATE TABLE IF NOT EXISTS page_snapshots(
   content_hash TEXT NOT NULL,
   ts INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS artifacts(
+  id TEXT PRIMARY KEY,
+  ts INTEGER NOT NULL,
+  type TEXT NOT NULL,
+  day INTEGER NOT NULL DEFAULT 0,
+  content TEXT NOT NULL,
+  meta TEXT
+);
 `;
 
 export function openDb(path = ":memory:") {
