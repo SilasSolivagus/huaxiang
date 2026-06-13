@@ -33,4 +33,34 @@ const text = minutesToText(m1);
 if (!text.includes("【决议】") || !text.includes("【行动项】")) throw new Error("正文应含分段标题");
 if (!text.includes("王强：评估带宽方案")) throw new Error("行动项应渲染 owner");
 
+// --- Feed.writeArtifact / readArtifacts（桩 fetch）---
+import { Feed } from "./js/feed.js";
+
+const calls = [];
+globalThis.fetch = async (url, opts) => {
+  calls.push({ url, method: opts?.method || "GET", body: opts?.body });
+  if (String(url).startsWith("/api/artifacts") && (!opts || opts.method === undefined || opts.method === "GET")) {
+    return { ok: true, json: async () => ({ artifacts: [{ id: "art_1", type: "minutes", day: 4, content: "X" }] }) };
+  }
+  return { ok: true, json: async () => ({ id: "art_new" }) };
+};
+
+const feed = new Feed();
+feed.online = true;
+const w = await feed.writeArtifact({ type: "minutes", day: 4, content: "决议X" });
+if (!w || w.id !== "art_new") throw new Error("writeArtifact 应返回创建结果");
+const postCall = calls.find(c => c.method === "POST");
+if (!postCall || postCall.url !== "/api/artifacts") throw new Error("应 POST /api/artifacts");
+
+const list = await feed.readArtifacts({ type: "minutes", day: 4 });
+if (!Array.isArray(list) || list[0].id !== "art_1") throw new Error("readArtifacts 应返回数组");
+const getCall = calls.find(c => c.method === "GET" && c.url.includes("type=minutes"));
+if (!getCall || !getCall.url.includes("day=4")) throw new Error("GET URL 应含 type=minutes&day=4");
+
+// 离线降级：不发请求、返回 null
+const offline = new Feed();
+offline.online = false;
+if (await offline.writeArtifact({ type: "minutes", content: "x" }) !== null) throw new Error("离线 writeArtifact 应返回 null");
+if (await offline.readArtifacts() !== null) throw new Error("离线 readArtifacts 应返回 null");
+
 console.log("minutes helpers OK");
