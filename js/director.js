@@ -17,6 +17,7 @@ import { DAILY_SCHEDULE } from "./personas.js";
 import { buildItems, composeAgentSummary } from "./board.js";
 import { minutesEmpty, minutesToText } from "./cognition/minutes.js";
 import { newActionItem } from "./cognition/actionItems.js";
+import { findCollabPair, planSummaryText } from "./cognition/plan.js";
 
 const MINUTES_PER_SECOND = 2.2;   // 1 秒现实时间 = 2.2 分钟模拟时间（1x 速度）
 const DAY_START = 9 * 60;          // 09:00
@@ -55,6 +56,7 @@ export class Director {
     this.board = board;
     this.actionItems = actionItems;
     this.pendingMarketFeedback = [];   // 上一日市场反馈，次日开工广播进全员记忆
+    this.todayMarketFeedback = [];      // 昨夜市场反馈文本（供今日计划快照）
 
     this.todayRecord = freshRecord();   // 当日事实累积（给看板）
     this.todayHighlights = [];          // 当日会议/协作发言摘录（给看板 AI）
@@ -77,6 +79,7 @@ export class Director {
       .sort((a, b) => a.min - b.min);
 
     this.broadcastDaily();
+    this.runDailyPlans();
   }
 
   after(delay, fn) {
@@ -148,6 +151,7 @@ export class Director {
     if (this.pendingMarketFeedback.length) {
       // 只广播「产生日早于今天」的反馈——确保市场反馈确定性地次日才回流，而非依赖异步时序
       const ready = this.pendingMarketFeedback.filter(f => f.day < this.day);
+      this.todayMarketFeedback = ready.map(f => f.text);
       for (const f of ready) {
         this.log(`💬 市场反馈：${f.text}`, "log-meeting");
         for (const a of this.agents) this.remember(a, `市场反馈：${f.text}`, 7, "world");
@@ -294,7 +298,7 @@ export class Director {
       this.todayRecord = freshRecord();
       this.todayHighlights = [];
       this.log(`☀️ 第 ${this.day} 天开始了`, "log-meeting");
-      this.refreshRepoState().then(() => this.broadcastDaily());
+      this.refreshRepoState().then(() => { this.broadcastDaily(); this.runDailyPlans(); });
     }
 
     // 执行到期的定时任务
@@ -661,6 +665,34 @@ export class Director {
       .catch(() => {});
   }
 
+  /** 每日开工：每人基于反思+今晨快照+名下未完成行动项定计划，挂到 agent 并写高权重记忆。 */
+  runDailyPlans() {
+    if (!this.llm?.enabled || this.llm.usage === "economy") return;
+    const company = this.world?.companyBrief?.();
+    const policies = this.feed?.activePolicies?.() ?? [];
+    const snapshot = [
+      this.world?.metricsSummary?.(),
+      this.world?.todayEvents?.length ? "今日动态：" + this.world.todayEvents.map(e => e.text).join("；") : "",
+      this.todayMarketFeedback?.length ? "昨夜市场反馈：" + this.todayMarketFeedback.join("；") : "",
+      policies.length ? "现行政策：" + policies.join("；") : "",
+      this.repoDigest ? "代码近况：" + this.repoDigest : ""
+    ].filter(Boolean).join("\n");
+    const day = this.day;
+    for (const a of this.agents) {
+      if (!a.memory) continue;
+      const reflection = lastReflection(a);
+      const openItems = (this.actionItems?.openFor(a.persona.name) ?? []).map(i => i.what);
+      this.llm.dailyPlan({ persona: a.persona, company, reflection, snapshot, openItems })
+        .then(plan => {
+          if (!plan || !plan.intentions.length) return;
+          if (a.plan?.day === day) return;   // 当日已生成，跳过重复
+          a.plan = { ...plan, day };
+          this.remember(a, `今日计划：${planSummaryText(plan)}`, 7, "plan");
+        })
+        .catch(() => {});
+    }
+  }
+
   /** 日终市场反应：上线改进喂模型 → 指标增量落到 world + 市场反馈排进次日全员记忆。 */
   runMarketReaction(shipped = []) {
     if (!this.llm?.available || !this.world) return Promise.resolve();
@@ -697,6 +729,12 @@ const DOMAIN_TERMS = ["限速", "带宽", "直链", "上传", "下载", "分享"
 function fmtDelta(n) {
   const v = Number(n) || 0;
   return v > 0 ? `+${v}` : `${v}`;
+}
+
+function lastReflection(agent) {
+  const items = agent.memory?.items?.filter(m => m.type === "reflect") ?? [];
+  const last = items[items.length - 1];
+  return last ? String(last.c).replace(/^今日反思：/, "") : "";
 }
 
 export function codeRefNote(hits) {
