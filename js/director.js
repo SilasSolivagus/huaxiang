@@ -146,11 +146,13 @@ export class Director {
       }
     }
     if (this.pendingMarketFeedback.length) {
-      for (const fb of this.pendingMarketFeedback) {
-        this.log(`💬 市场反馈：${fb}`, "log-meeting");
-        for (const a of this.agents) this.remember(a, `市场反馈：${fb}`, 7, "world");
+      // 只广播「产生日早于今天」的反馈——确保市场反馈确定性地次日才回流，而非依赖异步时序
+      const ready = this.pendingMarketFeedback.filter(f => f.day < this.day);
+      for (const f of ready) {
+        this.log(`💬 市场反馈：${f.text}`, "log-meeting");
+        for (const a of this.agents) this.remember(a, `市场反馈：${f.text}`, 7, "world");
       }
-      this.pendingMarketFeedback = [];
+      this.pendingMarketFeedback = this.pendingMarketFeedback.filter(f => f.day >= this.day);
     }
   }
 
@@ -673,8 +675,9 @@ export class Director {
     }).then(r => {
       if (!r) return;
       this.world.applyMarketDeltas(r.deltas);
-      if (r.competitorMove) this.pendingMarketFeedback.push(r.competitorMove);
-      this.pendingMarketFeedback.push(...r.feedback);
+      // 打上产生日（当前已是新一天）：次日 broadcastDaily 才会回流进全员记忆
+      if (r.competitorMove) this.pendingMarketFeedback.push({ day: this.day, text: r.competitorMove });
+      for (const fb of r.feedback) this.pendingMarketFeedback.push({ day: this.day, text: fb });
       const reason = r.reasons[0] ? `（${r.reasons[0]}）` : "";
       this.log(`📈 市场反应：满意度 ${fmtDelta(r.deltas.sat)}、日活 ${fmtDelta(r.deltas.dau)}${reason}`, "log-meeting");
     }).catch(() => {});

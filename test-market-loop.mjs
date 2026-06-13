@@ -40,11 +40,17 @@ await dir.runMarketReaction(shipped);
 if (!stubWorld.deltasApplied || stubWorld.deltasApplied.dau !== 5000) throw new Error("市场 deltas 应落到 world");
 if (!dir.pendingMarketFeedback || dir.pendingMarketFeedback.length !== 1) throw new Error("反馈应排进次日队列");
 
-// 3) 次日 broadcastDaily 把市场反馈写进全员记忆并清空队列
+// 3) 确定性次日语义：同一天 broadcastDaily 不放反馈，次日才放
 stubWorld.metricsSummary = () => "日活 80.5 万";
+// 反馈产生于 dir.day（=1）；同日广播不应释放
+dir.broadcastDaily();
+if (agents[0].memory.items.some(m => m.c.includes("应用商店：变快了"))) throw new Error("同日不应提前广播市场反馈");
+if (dir.pendingMarketFeedback.length !== 1) throw new Error("同日广播后队列应仍保留");
+// 进入次日 → broadcastDaily 把反馈写进全员记忆并清空队列
+dir.day = 2;
 dir.broadcastDaily();
 const got = agents[0].memory.items.filter(m => m.c.includes("应用商店：变快了"));
-if (got.length !== 1) throw new Error("市场反馈应进全员记忆");
+if (got.length !== 1) throw new Error("次日市场反馈应进全员记忆");
 if (dir.pendingMarketFeedback.length !== 0) throw new Error("广播后队列应清空");
 
 console.log("market loop OK");
