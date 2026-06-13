@@ -10,6 +10,7 @@
 import { normalizeMinutes } from "./cognition/minutes.js";
 import { normalizeMarketReaction } from "./cognition/market.js";
 import { normalizePlan } from "./cognition/plan.js";
+import { parseQuestions, parseInsight } from "./cognition/reflect.js";
 
 const ERROR_COOLDOWN_MS = 60000;
 const USAGE_INTERVALS = { economy: 999999999, standard: 4500, immersive: 2200 };
@@ -137,28 +138,6 @@ export class LLMClient {
     });
   }
 
-  /** 每日反思：把当天经历提炼成 1~2 条感悟（高权重记忆） */
-  async reflect({ persona, company, digest, day }) {
-    if (!this.available || !digest) return null;
-    return this.enqueue(async () => {
-      try {
-        const system =
-          `你在扮演「${persona.name}」（${persona.role}），性格画像：${persona.personality || "暂无"}。` +
-          (company ? `公司背景：${company}\n` : "") +
-          `下面是你今天（第 ${day} 天）经历的事情。请以第一人称写下 1 条你今天最重要的感悟或决定，` +
-          `不超过 50 个字，要具体、能指导你明天的行动。只输出这条感悟本身。`;
-        const text = (await this.chatRaw(system, `今天的经历：\n${digest}`, 256)).trim();
-        this.lastError = null;
-        return text ? text.slice(0, 70) : null;
-      } catch (e) {
-        console.warn("反思生成失败：", e);
-        this.lastError = String(e.message || e);
-        this.cooldownUntil = Date.now() + ERROR_COOLDOWN_MS;
-        return null;
-      }
-    });
-  }
-
   /**
    * 团队当日简报：把当天的事实和讨论高亮，提炼成结构化的「进展 / 决策 / 应对」条目。
    * @param {object} opts { company, day, facts: string, highlights: string[] }
@@ -188,6 +167,56 @@ export class LLMClient {
           .slice(0, 6);
       } catch (e) {
         console.warn("当日简报生成失败：", e.message || e);
+        this.lastError = String(e.message || e);
+        this.cooldownUntil = Date.now() + ERROR_COOLDOWN_MS;
+        return null;
+      }
+    });
+  }
+
+  /**
+   * 反思树·第一步：从近期记忆提出 2~3 个值得想清楚的问题。批量语义：靠 enqueue 串行节流，全员都排队。
+   * @param {object} opts { persona, company, memories: string }  memories 是带编号的记忆清单
+   * @returns {Promise<string[]|null>}
+   */
+  async reflectQuestions({ persona, company, memories }) {
+    if (!this.enabled || Date.now() < this.cooldownUntil || !memories) return null;
+    return this.enqueue(async () => {
+      try {
+        const system =
+          `你在扮演「${persona.name}」（${persona.role}），性格：${persona.personality || "暂无"}。` +
+          (company ? `公司背景：${company}\n` : "") +
+          `下面是你最近记得的事（每条带编号）。请从中提出 2~3 个你最该想清楚的问题（关于工作、协作、产品方向）。` +
+          `只输出 JSON 字符串数组，如 ["问题1","问题2"]。不要其他文字。`;
+        const raw = await this.chatRaw(system, `你最近记得的事：\n${memories}`, 300);
+        this.lastError = null;
+        return parseQuestions(raw);
+      } catch (e) {
+        console.warn("反思提问失败：", e.message || e);
+        this.lastError = String(e.message || e);
+        this.cooldownUntil = Date.now() + ERROR_COOLDOWN_MS;
+        return null;
+      }
+    });
+  }
+
+  /**
+   * 反思树·第二步：针对一个问题，结合带编号记忆给出洞见并标注证据编号。
+   * @param {object} opts { persona, company, question, memories: string }
+   * @returns {Promise<{insight,evidence}|null>}
+   */
+  async reflectInsight({ persona, company, question, memories }) {
+    if (!this.enabled || Date.now() < this.cooldownUntil) return null;
+    return this.enqueue(async () => {
+      try {
+        const system =
+          `你在扮演「${persona.name}」（${persona.role}）。针对问题，结合下面带编号的记忆，给出一条具体、能指导明天行动的洞见，` +
+          `并标注你主要依据了哪几条记忆的编号。只输出 JSON：{"insight":"≤50字洞见","evidence":[依据的记忆编号]}。不要其他文字。`;
+        const raw = await this.chatRaw(system, `问题：${question}\n\n带编号的记忆：\n${memories}`, 300);
+        this.lastError = null;
+        return parseInsight(raw);
+      } catch (e) {
+        console.warn("反思洞见失败：", e.message || e);
         this.lastError = String(e.message || e);
         this.cooldownUntil = Date.now() + ERROR_COOLDOWN_MS;
         return null;
