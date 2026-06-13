@@ -129,8 +129,9 @@ export function createRepoService(rootPath, deps = {}) {
   try { root = realpathSync(resolve(rootPath)); } catch { root = resolve(rootPath); }
 
   function resolveInside(rel) {
-    const cleaned = String(rel || "").replace(/^[/\\]+/, "");
-    const abs = resolve(root, cleaned);
+    const str = String(rel || "");
+    if (/^[/\\]/.test(str)) throw new Error("path escapes repo root");   // 绝对路径直接拒绝
+    const abs = resolve(root, str);
     let real;
     try { real = realpathSync(abs); } catch { real = abs; }   // 文件不存在时按规范化路径判断
     if (real !== root && !real.startsWith(root + sep)) {
