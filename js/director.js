@@ -272,6 +272,8 @@ export class Director {
       this.currentPhase = null;
       this.tasks = [];
       this.collabBusy.clear();
+      // 会议纪要在「离开会议相位」时已收割（见 update 的相位切换钩子）；这里直接重置即可。
+      // 隐式契约：日程里每个会议相位后都跟一个非会议相位且早于 DAY_END——若将来把会议排到收尾，需在此先收割。
       this.meetState = { rd: freshMeet(), ops: freshMeet() };
       this.workSeat.clear();
       this.reflected = false;
