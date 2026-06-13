@@ -576,6 +576,7 @@ export class Director {
 
     this.collabBusy.add(visitor.persona.id);
     this.collabBusy.add(host.persona.id);
+    const startDay = this.day;   // 跨天/相位切换后悬挂的 converse 链据此丢弃，防"复活"到新一天
 
     visitor.setActivity(`去找 ${host.persona.name} 讨论`);
     this.log(`🤝 ${visitor.persona.name} 去找 ${host.persona.name} 协作讨论`, "log-collab");
@@ -600,6 +601,8 @@ export class Director {
     let turnNo = 0;
 
     const finishCollab = () => {
+      // 已跨天或 collabBusy 已被相位切换/日终清空：这是悬挂链的迟到回调，丢弃，别动旧工位/重复计 bug
+      if (this.day !== startDay || !this.collabBusy.has(visitor.persona.id)) return;
       if (this.currentPhase?.type === "work") {
         visitor.setActivity("在工位专注工作");
         host.setActivity("在工位专注工作");
@@ -619,6 +622,8 @@ export class Director {
     };
 
     const runConverseTurn = () => {
+      // 已跨天或 collabBusy 已清：丢弃悬挂的 converse 链，不再发言/排程
+      if (this.day !== startDay || !this.collabBusy.has(visitor.persona.id)) return;
       const speaker = speakers[turnNo % 2];
       const isLast = turnNo >= maxTurns - 1;
       const fallback = isLast ? pick(closers) : pick(speaker.persona.lines.collab);
