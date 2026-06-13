@@ -261,7 +261,9 @@ export class LLMClient {
    * @returns {Promise<{intentions}|null>} 失败/不可用返回 null
    */
   async dailyPlan({ persona, company, reflection, snapshot, openItems = [] }) {
-    if (!this.available) return null;
+    // 不用 available（含 queueLen<3）——开工时全员一次性发起，靠 enqueue 串行+节流自然铺开，
+    // 否则只有前几个入队、其余被丢，违背"每人每日 1 次"。仍保留 enabled 与错误冷却门。
+    if (!this.enabled || Date.now() < this.cooldownUntil) return null;
     return this.enqueue(async () => {
       try {
         const system =
